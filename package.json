@@ -1,0 +1,16 @@
+{
+  "name": "ali-school-timetable",
+  "version": "1.0.0",
+  "description": "Ali Public School Management System — monorepo root",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix Backend && npm install --prefix web-admin",
+    "dev": "concurrently -n BACKEND,WEBADMIN -c blue,green --kill-others-on-fail \"npm run dev --prefix Backend\" \"npm run dev --prefix web-admin\"",
+    "db:migrate": "npm run db:migrate --prefix Backend",
+    "db:seed-admin": "npm run db:seed-admin --prefix Backend",
+    "db:studio": "npm run db:studio --prefix Backend"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3"
+  }
+}

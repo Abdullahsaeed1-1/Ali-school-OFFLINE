@@ -1,0 +1,17 @@
+{
+  "girls_campus_unconfirmed_classes": {
+    "description": "These class labels exist in the Excel file but their schedule data is #N/A (broken formula chain) or completely empty. Could not extract real periods-per-week data. Confirm with school whether these are real active sections before adding ClassSubject data.",
+    "broken_likely_real": ["1C", "2C", "3B", "3C", "4B", "5B", "6B", "7B", "8B", "9B", "10B"],
+    "empty_likely_unused": ["11 Medical", "11 CS"]
+  },
+  "boys_campus_unconfirmed_classes": {
+    "description": "Confirmed empty (zero periods, no teacher/subject data anywhere in file)",
+    "confirmed_inactive": ["5B", "7B", "8B", "9B", "10B"],
+    "grade_3_note": "3A/3B appear only as scattered references inside individual teacher eligibility rows, NOT as an official class with its own schedule block anywhere in the workbook (absent from both the master per-class block list and the official Per-Period display). Treat as NOT an active class unless school confirms otherwise.",
+    "college_section_note": "11 Medical / 11 Engineering / 11 CS / 12 CS appear in the per-class block list, but the 'Classes per subject' tracking table shows zero for all of them (this table may simply not be built to track college-stream subjects like Pre-Medical/Pre-Engineering/Statistics, which are NOT in its column headers). A separate curriculum reference table elsewhere in the sheet confirms these streams exist with subjects like Pre Medical (Physics/Chemistry/Biology), Pre Engineering (Physics/Chemistry/Maths), and CS (Computer Science/Maths/Statistics or Physics) but gives no periods-per-week breakdown. '12 Medical' and '12 Engineering' (present in current seed.ts) have NO corresponding block anywhere in the workbook - only '12 CS' is confirmed to exist. VERIFY ALL OF THIS WITH SCHOOL before seeding."
+  },
+  "period_timing_ambiguity": {
+    "description": "For Nursery, KG, and Classes 1-8 timing tables, Period 4's listed end-time equals Period 5's listed start-time, leaving zero minutes for the 'Break' label attached to Period 4's row. This means the source sheet never actually states the break's real duration - it only marks that a break exists after Period 4, without giving it explicit minutes. Classes 9 & 10 table has no such issue (fully consistent, already matches current seed).",
+    "recommendation": "Period 4 should be treated as a REAL teaching period at its listed time (confirmed via the actual per-class grid, e.g. 1A's Period 4 = Games every weekday). The break duration after it is NOT stated in the source file. Current seed.ts assumes a 15-minute break - this is a reasonable placeholder but is an ASSUMPTION, not an Excel fact. Confirm real break duration with school."
+  }
+}

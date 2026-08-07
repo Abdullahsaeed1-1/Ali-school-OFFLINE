@@ -1,0 +1,11 @@
+{
+  "4A": {"English": 5, "Urdu": 4, "Islamiat": 3, "Maths": 5, "Science": 5, "Geography/SS": 2, "Computer Science": 3, "Reading/Writing": 3, "Games": 5},
+  "4B": {"English": 5, "Urdu": 4, "Islamiat": 3, "Maths": 5, "Science": 5, "Geography/SS": 2, "Computer Science": 3, "Reading/Writing": 3, "Games": 5},
+  "5A": {"English": 5, "Urdu": 4, "Islamiat": 3, "Maths": 5, "Science": 5, "Geography/SS": 5, "Computer Science": 3, "Games": 5},
+  "6A": {"English": 5, "Urdu": 4, "Islamiat": 3, "Maths": 5, "Science": 5, "Geography/SS": 3, "Computer Science": 3, "History": 2, "Games": 5},
+  "6B": {"English": 5, "Urdu": 4, "Islamiat": 3, "Maths": 5, "Science": 5, "Geography/SS": 3, "Computer Science": 3, "History": 2, "Games": 5, "_note": "Curriculum requirement confirmed from Excel, but actual day-by-day teacher/period assignment is broken (#N/A) in source file. Use Auto-Generate to build its real schedule."},
+  "7A": {"English": 5, "Urdu": 4, "Islamiat": 3, "Maths": 5, "Science": 5, "Geography/SS": 3, "Computer Science": 3, "History": 2, "Games": 5},
+  "8A": {"English": 5, "Urdu": 4, "Islamiat": 3, "Maths": 5, "Physics": 4, "Chemistry": 4, "Biology": 4, "Geography/SS": 3, "Games": 1},
+  "9A": {"English": 5, "Urdu": 3, "Islamiat": 3, "Maths": 5, "Physics": 5, "Chemistry": 5, "Biology": 5, "Geography/SS": 3, "_note": "Games periods/week could not be reliably extracted (source data inconsistent across sheet sections) - VERIFY WITH SCHOOL"},
+  "10A": {"English": 5, "Urdu": 3, "Islamiat": 3, "Maths": 5, "Physics": 5, "Chemistry": 5, "Biology": 5, "Geography/SS": 3, "_note": "Games periods/week could not be reliably extracted (source data inconsistent across sheet sections) - VERIFY WITH SCHOOL"}
+}

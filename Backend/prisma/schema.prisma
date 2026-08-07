@@ -1,0 +1,354 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// SCHOOL & CAMPUS
+// ============================================
+
+model School {
+  id        String   @id @default(uuid())
+  name      String
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campuses Campus[]
+}
+
+model Campus {
+  id        String      @id @default(uuid())
+  name      String
+  type      CampusType
+  schoolId  String
+  createdAt DateTime    @default(now())
+  // Optimistic-concurrency guard for Generate (item 30 D.2,
+  // PENDING_QUESTIONS.md) — bumped inside the same transaction as a
+  // successful Generate's write. A second, near-simultaneous Generate for
+  // this campus captures its own expected version before its (slow) solver
+  // call; if this value has moved by the time it tries to write, its write
+  // is rejected with a clear conflict instead of silently overwriting or
+  // being silently overwritten. Same pattern as Teacher.updatedAt's
+  // expectedUpdatedAt check (item 19), applied to campus-wide Generate
+  // instead of a single record's edit.
+  timetableGenerationVersion Int @default(0)
+
+  school    School      @relation(fields: [schoolId], references: [id])
+  classes   Class[]
+  teachers  Teacher[]
+  periods   Period[]
+  timetables TimetableEntry[]
+}
+
+enum CampusType {
+  JUNIOR
+  GIRLS
+  BOYS
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+  PARENT
+}
+
+// ============================================
+// CLASSES
+// ============================================
+
+model Class {
+  id          String   @id @default(uuid())
+  name        String
+  gradeLevel  String?
+  section     String
+  stream      String?
+  campusId    String
+  isActive    Boolean  @default(true)
+  // Freezes this class out of future regenerations entirely (§13 manual
+  // lock feature) — its TimetableEntry rows are never deleted or recreated
+  // while true, regardless of what else changes for the rest of the campus.
+  isLocked    Boolean  @default(false)
+  // Which of lecture periods 1-7 Games is reserved in for this class, if
+  // any — replaces the old gradeLevel-parsing inference (gamesGroupForClass
+  // / juniorGamesHardSlots in utils/school.ts) with an explicit per-class
+  // answer, so a class with an unrecognized/unusual grade name can never
+  // silently fall through to "no protection" the way "11 Arts" did (item 27
+  // audit, PENDING_QUESTIONS.md). Empty array is a valid, meaningful answer
+  // ("confirmed: this class needs no Games protection"), not "unknown" —
+  // gamesProtectionConfirmed is what distinguishes the two: it must be
+  // explicitly true (enforced by the API, not just the UI) before a class
+  // can be created or have this field trusted at all.
+  gamesProtectedLectures   Int[]    @default([])
+  gamesProtectionConfirmed Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  campus              Campus            @relation(fields: [campusId], references: [id])
+  classSubjects       ClassSubject[]
+  timetableEntries    TimetableEntry[]
+  teacherSubjects     TeacherSubject[]
+  subjectCoverages    SubjectCoverage[]
+
+  @@unique([name, campusId])
+}
+
+// ============================================
+// SUBJECTS
+// ============================================
+
+model Subject {
+  id        String      @id @default(uuid())
+  name      String      @unique
+  code      String?
+  isCore    Boolean     @default(true)
+  tier      SubjectTier @default(UNSET)
+  createdAt DateTime    @default(now())
+
+  classSubjects    ClassSubject[]
+  teacherSubjects  TeacherSubject[]
+  timetableEntries TimetableEntry[]
+  subjectCoverages SubjectCoverage[]
+}
+
+// ============================================
+// CLASS-SUBJECT REQUIREMENTS
+// ============================================
+
+model ClassSubject {
+  id             String  @id @default(uuid())
+  classId        String
+  subjectId      String
+  periodsPerWeek Int
+  periodsPerDay  Float?
+
+  class   Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, subjectId])
+}
+
+// ============================================
+// TEACHERS
+// ============================================
+
+model Teacher {
+  id                   String   @id @default(uuid())
+  name                 String
+  email                String?  @unique
+  phone                String?
+  maxPeriodsPerWeek    Int      @default(35)
+  targetPeriodsPerWeek Int      @default(30)
+  currentPeriods       Int      @default(0)
+  status               TeacherStatus @default(ACTIVE)
+  hiringStatus         HiringStatus @default(HIRED)
+  campusId             String
+  fcmToken             String?
+  isLocked             Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  campus              Campus                  @relation(fields: [campusId], references: [id])
+  user                User?
+  teacherSubjects     TeacherSubject[]
+  timetableEntries    TimetableEntry[] @relation("PrimaryTeacherEntries")
+  secondTeacherEntries TimetableEntry[] @relation("SecondTeacherEntries")
+  loadSummaries       TeacherLoadSummary[]
+}
+
+enum HiringStatus {
+  HIRED
+  TO_BE_HIRED
+}
+
+// CORE_EARLY: Periods 1-4 (Group B classes) or 1-3 (Group A — Period 4 is
+// reserved for Games instead). LIGHT_LATE: Periods 5-7. UNSET: subject's
+// tier was never confirmed by the school (§8) — the generator leaves its
+// placement unrestricted and flags it, rather than guessing a tier.
+enum SubjectTier {
+  CORE_EARLY
+  LIGHT_LATE
+  UNSET
+}
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  passwordHash    String
+  role            Role      @default(TEACHER)
+  teacherId       String?   @unique
+  refreshToken    String?
+  lastPasswordSet DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  teacher Teacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+}
+
+enum TeacherStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+}
+
+// ============================================
+// TEACHER-SUBJECT-CLASS ELIGIBILITY
+// One row per (teacher, subject, class) the teacher actually covers —
+// NOT a cross-product of independent subject/class lists. A teacher who
+// teaches Computer Science to classes 4-7 but Maths only to 1A needs two
+// separate rows, not one subject row + one class row, or the solver would
+// wrongly infer they can also teach Maths to classes 4-7.
+// ============================================
+
+model TeacherSubject {
+  id        String  @id @default(uuid())
+  teacherId String
+  subjectId String
+  classId   String
+  isPrimary Boolean @default(true)
+
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, subjectId, classId])
+}
+
+// ============================================
+// PERIODS (School Timings)
+// ============================================
+
+model Period {
+  id           String  @id @default(uuid())
+  periodNumber Int
+  name         String
+  startTime    String
+  endTime      String
+  duration     Int
+  isBreak      Boolean @default(false)
+  isGames      Boolean @default(false)
+  campusId     String
+  classGroup   String
+
+  campus           Campus           @relation(fields: [campusId], references: [id])
+  timetableEntries TimetableEntry[]
+
+  @@unique([periodNumber, campusId, classGroup])
+}
+
+// ============================================
+// TIMETABLE ENTRIES — MAIN TABLE
+// ============================================
+
+model TimetableEntry {
+  id           String    @id @default(uuid())
+  academicYear String
+  dayOfWeek    DayOfWeek
+
+  campusId  String
+  classId   String
+  teacherId String?
+  subjectId String?
+  periodId  String
+
+  // Games only (§17): the school rotates 2 teachers/day on Games duty
+  // rather than using a fixed subject-teacher eligibility model. teacherId
+  // holds the first of the pair, secondTeacherId the second — every other
+  // subject leaves this null. No DB-level uniqueness on this column (the
+  // games duty scheduler is authoritative for avoiding double-booking
+  // across both the teacherId and secondTeacherId roles).
+  secondTeacherId String?
+
+  isSubstitute Boolean @default(false)
+  isActive     Boolean @default(true)
+  // Granular Lock (§24 follow-up item): freezes this one row from being
+  // deleted/recreated by a future regenerate, even though its class isn't
+  // itself Locked — set directly (single-period lock) or in bulk across a
+  // teacher's rows for one day (teacher-day lock). See timetableGenerator.ts.
+  isLocked     Boolean @default(false)
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  campus        Campus   @relation(fields: [campusId], references: [id])
+  class         Class    @relation(fields: [classId], references: [id])
+  teacher       Teacher? @relation("PrimaryTeacherEntries", fields: [teacherId], references: [id])
+  secondTeacher Teacher? @relation("SecondTeacherEntries", fields: [secondTeacherId], references: [id])
+  subject       Subject? @relation(fields: [subjectId], references: [id])
+  period        Period   @relation(fields: [periodId], references: [id])
+
+  // No unique constraint on (academicYear, dayOfWeek, teacherId, periodId)
+  // — removed 2026-07-25. Under the corrected Games duty model (§17), the
+  // SAME 1-2 teachers legitimately appear on MULTIPLE rows at the exact
+  // same (day, period) when several classes share one Games ground at
+  // once (one row per class, same duty teacher(s) each time) — a real,
+  // intentional case, not a double-booking bug. True double-booking (a
+  // teacher teaching two DIFFERENT subjects/classes at once) is already
+  // prevented at the application level: the CP-SAT solver's hard
+  // no-double-booking constraint for academic assignments, and
+  // gamesDutyScheduler.ts's own busy-tracking for duty assignments.
+  @@unique([academicYear, dayOfWeek, classId, periodId], name: "unique_class_period")
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+// ============================================
+// ANALYTICS
+// ============================================
+
+model TeacherLoadSummary {
+  id            String     @id @default(uuid())
+  teacherId     String
+  academicYear  String
+  weekStart     DateTime
+  totalAssigned Int
+  totalTarget   Int
+  totalMax      Int
+  delta         Int
+  status        LoadStatus
+  createdAt     DateTime   @default(now())
+
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  @@unique([teacherId, academicYear, weekStart])
+}
+
+enum LoadStatus {
+  FINE
+  SLACK
+  ERROR
+}
+
+model SubjectCoverage {
+  id              String   @id @default(uuid())
+  classId         String
+  subjectId       String
+  academicYear    String
+  requiredPeriods Int
+  actualPeriods   Int
+  coverageDelta   Int
+  isComplete      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  class   Class   @relation(fields: [classId], references: [id])
+  subject Subject @relation(fields: [subjectId], references: [id])
+
+  @@unique([classId, subjectId, academicYear])
+}

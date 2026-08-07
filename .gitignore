@@ -1,0 +1,29 @@
+node_modules
+# Keep environment variables out of version control
+.env
+
+/generated/prisma
+
+# Python solver service (Backend/solver/)
+Backend/solver/.venv
+Backend/solver/__pycache__
+Backend/solver/**/__pycache__
+
+# Repo-root Python venv (separate from Backend/solver/.venv above)
+/.venv
+
+# Build output — regenerated on every deploy, never a source-of-truth artifact
+Backend/dist
+web-admin/dist
+
+# Claude Code's local-only permission grants (machine-specific, not shared project config)
+.claude/settings.local.json
+
+# Real school source data with real teacher names — kept local-only by
+# deliberate decision (2026-08-01), shared with new developers via a
+# private channel instead of git history, since removing something from
+# history after the fact is much harder than never committing it. See
+# docs/excel-ground-truth.md.
+/2026-2027 Time Table Master File Scenarios v2.xlsx
+/ALI PUBLIC SCHOOL - STRUCTURE & TEA.txt
+/docs/girls_full_grid.json
