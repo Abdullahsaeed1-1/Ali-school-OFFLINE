@@ -13,22 +13,31 @@ const ACADEMIC_YEAR = '2026-2027'
 
 type SubjectClassPair = { subjectId: string; classId: string }
 
-type TeacherPayload = {
-  name?: string
+// name/campusId required, everything else optional — guaranteed by
+// createTeacherBodySchema (schemas/teachers.schemas.ts). Note: the schema
+// rejects the WHOLE request if any eligibilities entry is malformed, where
+// the old parseEligibilities() used to silently drop just the bad entries
+// and keep the rest — a deliberate behavior change (an admin silently
+// ending up with fewer eligibilities saved than they thought is worse than
+// a clear rejection naming the problem).
+type CreateTeacherPayload = {
+  name: string
   email?: string | null
   phone?: string | null
-  campusId?: string
+  campusId: string
   targetPeriodsPerWeek?: number
   maxPeriodsPerWeek?: number
   eligibilities?: SubjectClassPair[]
   status?: TeacherStatus
   hiringStatus?: HiringStatus
-  // Optimistic concurrency (updateTeacher only) — the teacher's
-  // updatedAt as the client last saw it, from when the Edit drawer was
-  // opened. Required on update so a second admin's save can never
-  // silently overwrite a first admin's save with no warning.
-  expectedUpdatedAt?: string
 }
+
+// Same as CreateTeacherPayload, plus expectedUpdatedAt (optimistic
+// concurrency, item 19) — the teacher's updatedAt as the client last saw
+// it, from when the Edit drawer was opened, so a second admin's save can
+// never silently overwrite a first admin's save with no warning. Required
+// and date-format-checked by updateTeacherBodySchema.
+type UpdateTeacherPayload = CreateTeacherPayload & { expectedUpdatedAt: string }
 
 function parsePage(value: unknown, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ''), 10)
@@ -47,14 +56,6 @@ function parseHiringStatus(value: unknown): HiringStatus | undefined {
     return value
   }
   return undefined
-}
-
-function parseEligibilities(value: unknown): SubjectClassPair[] {
-  if (!Array.isArray(value)) return []
-  return value.filter(
-    (item): item is SubjectClassPair =>
-      item && typeof item.subjectId === 'string' && typeof item.classId === 'string',
-  )
 }
 
 function normalizeEmail(email: string | null | undefined): string | null {
@@ -380,11 +381,8 @@ export const getTeacherReallocationRisk = async (req: Request<{ id: string }>, r
   }
 }
 
-function parseDayOfWeek(value: unknown): DayOfWeek | null {
-  return typeof value === 'string' && value in DayOfWeek ? (value as DayOfWeek) : null
-}
-
-type LockDayPayload = { dayOfWeek?: string; academicYear?: string; isLocked?: boolean }
+// Required — guaranteed by updateTeacherDayLockBodySchema (schemas/teachers.schemas.ts).
+type LockDayPayload = { dayOfWeek: DayOfWeek; academicYear: string; isLocked: boolean }
 
 // ---------------------------------------------------------------------------
 // PATCH /api/teachers/:id/lock-day  (ADMIN only)
@@ -398,12 +396,7 @@ type LockDayPayload = { dayOfWeek?: string; academicYear?: string; isLocked?: bo
 // ---------------------------------------------------------------------------
 export const updateTeacherDayLock = async (req: Request<{ id: string }, object, LockDayPayload>, res: Response) => {
   try {
-    const dayOfWeek = parseDayOfWeek(req.body.dayOfWeek)
-    const academicYear = req.body.academicYear
-    const isLocked = req.body.isLocked
-    if (!dayOfWeek || !academicYear || typeof isLocked !== 'boolean') {
-      return res.status(400).json({ error: 'dayOfWeek, academicYear, and isLocked are required', code: 'VALIDATION_ERROR' })
-    }
+    const { dayOfWeek, academicYear, isLocked } = req.body
 
     const teacher = await prisma.teacher.findUnique({ where: { id: req.params.id }, select: { id: true, name: true } })
     if (!teacher) {
@@ -427,21 +420,17 @@ export const updateTeacherDayLock = async (req: Request<{ id: string }, object, 
   }
 }
 
-export const createTeacher = async (req: Request<object, object, TeacherPayload>, res: Response) => {
+export const createTeacher = async (req: Request<object, object, CreateTeacherPayload>, res: Response) => {
   try {
-  const name = req.body.name?.trim()
+  const name = req.body.name.trim()
   const campusId = req.body.campusId
-  const eligibilities = parseEligibilities(req.body.eligibilities)
-  const status = parseTeacherStatus(req.body.status) ?? TeacherStatus.ACTIVE
-  const hiringStatus = parseHiringStatus(req.body.hiringStatus) ?? HiringStatus.HIRED
+  const eligibilities = req.body.eligibilities ?? []
+  const status = req.body.status ?? TeacherStatus.ACTIVE
+  const hiringStatus = req.body.hiringStatus ?? HiringStatus.HIRED
   const targetPeriodsPerWeek = req.body.targetPeriodsPerWeek ?? 30
   const maxPeriodsPerWeek = req.body.maxPeriodsPerWeek ?? 35
   const email = normalizeEmail(req.body.email)
   const phone = req.body.phone?.trim() || null
-
-  if (!name || !campusId) {
-    return res.status(400).json({ error: 'name and campusId are required', code: 'VALIDATION_ERROR' })
-  }
 
   const campus = await prisma.campus.findUnique({ where: { id: campusId } })
   if (!campus) {
@@ -507,34 +496,18 @@ export const createTeacher = async (req: Request<object, object, TeacherPayload>
 // distinct from any Prisma error, never confused with one.
 class StaleTeacherError extends Error {}
 
-export const updateTeacher = async (req: Request<{ id: string }, object, TeacherPayload>, res: Response) => {
+export const updateTeacher = async (req: Request<{ id: string }, object, UpdateTeacherPayload>, res: Response) => {
   try {
-  const name = req.body.name?.trim()
+  const name = req.body.name.trim()
   const campusId = req.body.campusId
-  const eligibilities = parseEligibilities(req.body.eligibilities)
-  const status = parseTeacherStatus(req.body.status)
-  const hiringStatus = parseHiringStatus(req.body.hiringStatus)
+  const eligibilities = req.body.eligibilities ?? []
+  const status = req.body.status
+  const hiringStatus = req.body.hiringStatus
   const targetPeriodsPerWeek = req.body.targetPeriodsPerWeek
   const maxPeriodsPerWeek = req.body.maxPeriodsPerWeek
   const email = req.body.email === undefined ? undefined : normalizeEmail(req.body.email)
   const phone = req.body.phone === undefined ? undefined : req.body.phone?.trim() || null
-  const expectedUpdatedAt = req.body.expectedUpdatedAt
-
-  if (!name || !campusId) {
-    return res.status(400).json({ error: 'name and campusId are required', code: 'VALIDATION_ERROR' })
-  }
-  if (!expectedUpdatedAt) {
-    return sendError(
-      res,
-      400,
-      'VALIDATION_ERROR',
-      'expectedUpdatedAt is required — reload this teacher before saving if you don\'t have it.',
-    )
-  }
-  const expectedUpdatedAtDate = new Date(expectedUpdatedAt)
-  if (Number.isNaN(expectedUpdatedAtDate.getTime())) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'expectedUpdatedAt is not a valid date.')
-  }
+  const expectedUpdatedAtDate = new Date(req.body.expectedUpdatedAt)
 
   const campus = await prisma.campus.findUnique({ where: { id: campusId } })
   if (!campus) {
@@ -675,12 +648,9 @@ export const updateTeacher = async (req: Request<{ id: string }, object, Teacher
 // teachers. Unlike Class Lock, this has no effect on the solver/generator —
 // it's purely an edit-protection guard, not a scheduling constraint.
 // ---------------------------------------------------------------------------
-export const updateTeacherLock = async (req: Request<{ id: string }, object, { isLocked?: unknown }>, res: Response) => {
+export const updateTeacherLock = async (req: Request<{ id: string }, object, { isLocked: boolean }>, res: Response) => {
   try {
-    const isLocked = req.body?.isLocked
-    if (typeof isLocked !== 'boolean') {
-      return res.status(400).json({ error: 'isLocked (boolean) is required', code: 'VALIDATION_ERROR' })
-    }
+    const { isLocked } = req.body
 
     const teacher = await prisma.teacher.findUnique({ where: { id: req.params.id }, select: { id: true } })
     if (!teacher) {
@@ -738,20 +708,10 @@ export const deleteTeacher = async (req: Request<{ id: string }>, res: Response)
 // TEACHER MOBILE APP LOGIN ACCOUNT
 // ============================================
 
-const PASSWORD_REQUIREMENTS_ERROR =
-  'Password must be at least 8 characters and include uppercase, number, and special character'
-
-function isPasswordValid(password: string): boolean {
-  return (
-    password.length >= 8 &&
-    /[A-Z]/.test(password) &&
-    /[0-9]/.test(password) &&
-    /[!@#$%^&*]/.test(password)
-  )
-}
-
+// Complexity requirements (min 8, uppercase, digit, special char) enforced
+// by setTeacherPasswordBodySchema (schemas/teachers.schemas.ts).
 type SetPasswordPayload = {
-  password?: string
+  password: string
 }
 
 // ---------------------------------------------------------------------------
@@ -762,10 +722,6 @@ export const setTeacherPassword = async (req: Request<{ id: string }, object, Se
   try {
     // Never log req.body.password
     const { password } = req.body
-
-    if (!password || !isPasswordValid(password)) {
-      return res.status(400).json({ error: PASSWORD_REQUIREMENTS_ERROR, code: 'VALIDATION_ERROR' })
-    }
 
     const teacher = await prisma.teacher.findUnique({ where: { id: req.params.id } })
     if (!teacher) {

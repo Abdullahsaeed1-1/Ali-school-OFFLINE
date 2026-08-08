@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
 import { authMiddleware, requireRole } from '../middleware/auth.middleware.js'
+import { validate } from '../middleware/validate.js'
 import {
   createTeacher,
   deleteTeacher,
@@ -14,6 +15,14 @@ import {
   updateTeacherDayLock,
   updateTeacherLock,
 } from '../controllers/teachers.controller.js'
+import {
+  createTeacherBodySchema,
+  setTeacherPasswordBodySchema,
+  teacherIdParamsSchema,
+  updateTeacherBodySchema,
+  updateTeacherDayLockBodySchema,
+  updateTeacherLockBodySchema,
+} from '../schemas/teachers.schemas.js'
 
 const router = Router()
 
@@ -34,14 +43,51 @@ router.get('/', authMiddleware, requireRole('ADMIN'), listTeachers)
 router.get('/stats', authMiddleware, requireRole('ADMIN'), getTeacherStats)
 // No requireRole here — getTeacherById itself allows ADMIN or the teacher
 // viewing their own record (used by the mobile app).
-router.get('/:id', authMiddleware, getTeacherById)
-router.post('/', authMiddleware, requireRole('ADMIN'), createTeacher)
-router.patch('/:id', authMiddleware, requireRole('ADMIN'), updateTeacher)
-router.patch('/:id/lock', authMiddleware, requireRole('ADMIN'), updateTeacherLock)
-router.patch('/:id/lock-day', authMiddleware, requireRole('ADMIN'), updateTeacherDayLock)
-router.delete('/:id', authMiddleware, requireRole('ADMIN'), deleteTeacher)
-router.get('/:id/account-status', authMiddleware, requireRole('ADMIN'), getTeacherAccountStatus)
-router.get('/:id/reallocation-risk', authMiddleware, requireRole('ADMIN'), getTeacherReallocationRisk)
-router.post('/:id/set-password', authMiddleware, requireRole('ADMIN'), setPasswordRateLimiter, setTeacherPassword)
+router.get('/:id', authMiddleware, validate({ params: teacherIdParamsSchema }), getTeacherById)
+router.post('/', authMiddleware, requireRole('ADMIN'), validate({ body: createTeacherBodySchema }), createTeacher)
+router.patch(
+  '/:id',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ params: teacherIdParamsSchema, body: updateTeacherBodySchema }),
+  updateTeacher,
+)
+router.patch(
+  '/:id/lock',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ params: teacherIdParamsSchema, body: updateTeacherLockBodySchema }),
+  updateTeacherLock,
+)
+router.patch(
+  '/:id/lock-day',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ params: teacherIdParamsSchema, body: updateTeacherDayLockBodySchema }),
+  updateTeacherDayLock,
+)
+router.delete('/:id', authMiddleware, requireRole('ADMIN'), validate({ params: teacherIdParamsSchema }), deleteTeacher)
+router.get(
+  '/:id/account-status',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ params: teacherIdParamsSchema }),
+  getTeacherAccountStatus,
+)
+router.get(
+  '/:id/reallocation-risk',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ params: teacherIdParamsSchema }),
+  getTeacherReallocationRisk,
+)
+router.post(
+  '/:id/set-password',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ params: teacherIdParamsSchema, body: setTeacherPasswordBodySchema }),
+  setPasswordRateLimiter,
+  setTeacherPassword,
+)
 
 export default router

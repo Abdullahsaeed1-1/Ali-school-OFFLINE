@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
 import { authMiddleware, requireRole } from '../middleware/auth.middleware.js'
+import { validate } from '../middleware/validate.js'
 import {
   clearTimetableSlot,
   generateTimetable,
@@ -10,6 +11,13 @@ import {
   putTimetableSlot,
   updateSlotLock,
 } from '../controllers/timetable.controller.js'
+import {
+  clearTimetableSlotQuerySchema,
+  generateTimetableBodySchema,
+  putTimetableSlotBodySchema,
+  teacherIdParamsSchema,
+  updateSlotLockBodySchema,
+} from '../schemas/timetable.schemas.js'
 
 const router = Router()
 
@@ -31,10 +39,40 @@ const generateRateLimiter = rateLimit({
 
 router.get('/', authMiddleware, requireRole('ADMIN'), getTimetable)
 router.get('/status', authMiddleware, requireRole('ADMIN'), getTimetableStatus)
-router.get('/teacher/:teacherId', authMiddleware, getTeacherTimetable)
-router.post('/generate', authMiddleware, requireRole('ADMIN'), generateRateLimiter, generateTimetable)
-router.put('/slot', authMiddleware, requireRole('ADMIN'), putTimetableSlot)
-router.delete('/slot', authMiddleware, requireRole('ADMIN'), clearTimetableSlot)
-router.patch('/slot/lock', authMiddleware, requireRole('ADMIN'), updateSlotLock)
+router.get(
+  '/teacher/:teacherId',
+  authMiddleware,
+  validate({ params: teacherIdParamsSchema }),
+  getTeacherTimetable,
+)
+router.post(
+  '/generate',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ body: generateTimetableBodySchema }),
+  generateRateLimiter,
+  generateTimetable,
+)
+router.put(
+  '/slot',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ body: putTimetableSlotBodySchema }),
+  putTimetableSlot,
+)
+router.delete(
+  '/slot',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ query: clearTimetableSlotQuerySchema }),
+  clearTimetableSlot,
+)
+router.patch(
+  '/slot/lock',
+  authMiddleware,
+  requireRole('ADMIN'),
+  validate({ body: updateSlotLockBodySchema }),
+  updateSlotLock,
+)
 
 export default router

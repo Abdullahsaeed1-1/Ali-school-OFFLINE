@@ -209,12 +209,14 @@ export const generateTimetable = async (
  *      genuinely isn't the normal eligible one for that subject, which is
  *      exactly the point of this feature, not a mistake to silently block.
  */
+// classId/dayOfWeek/periodId/subjectId/teacherId required, guaranteed by
+// putTimetableSlotBodySchema (schemas/timetable.schemas.ts).
 type SlotOverrideBody = {
-  classId?: string
-  dayOfWeek?: string
-  periodId?: string
-  subjectId?: string
-  teacherId?: string
+  classId: string
+  dayOfWeek: DayOfWeek
+  periodId: string
+  subjectId: string
+  teacherId: string
   academicYear?: string
   confirmEligibilityOverride?: boolean
 }
@@ -222,12 +224,7 @@ type SlotOverrideBody = {
 export const putTimetableSlot = async (req: Request<object, object, SlotOverrideBody>, res: Response) => {
   try {
     const academicYear = resolveYear(req.body.academicYear)
-    const { classId, periodId, subjectId, teacherId, confirmEligibilityOverride } = req.body
-    const dayOfWeek = parseDayOfWeek(req.body.dayOfWeek)
-
-    if (!classId || !dayOfWeek || !periodId || !subjectId || !teacherId) {
-      return sendError(res, 400, 'VALIDATION_ERROR', 'classId, dayOfWeek, periodId, subjectId, and teacherId are required')
-    }
+    const { classId, dayOfWeek, periodId, subjectId, teacherId, confirmEligibilityOverride } = req.body
 
     const [cls, period, subject, teacher] = await Promise.all([
       prisma.class.findUnique({ where: { id: classId }, select: { id: true, name: true, campusId: true } }),
@@ -361,12 +358,14 @@ export const clearTimetableSlot = async (req: Request<object, object, object, Sl
   }
 }
 
+// classId/dayOfWeek/periodId/isLocked required, guaranteed by
+// updateSlotLockBodySchema (schemas/timetable.schemas.ts).
 type SlotLockBody = {
-  classId?: string
-  dayOfWeek?: string
-  periodId?: string
+  classId: string
+  dayOfWeek: DayOfWeek
+  periodId: string
   academicYear?: string
-  isLocked?: boolean
+  isLocked: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -380,12 +379,7 @@ type SlotLockBody = {
 export const updateSlotLock = async (req: Request<object, object, SlotLockBody>, res: Response) => {
   try {
     const academicYear = resolveYear(req.body.academicYear)
-    const { classId, periodId, isLocked } = req.body
-    const dayOfWeek = parseDayOfWeek(req.body.dayOfWeek)
-
-    if (!classId || !dayOfWeek || !periodId || typeof isLocked !== 'boolean') {
-      return sendError(res, 400, 'VALIDATION_ERROR', 'classId, dayOfWeek, periodId, and isLocked are required')
-    }
+    const { classId, dayOfWeek, periodId, isLocked } = req.body
 
     const existing = await prisma.timetableEntry.findUnique({
       where: { unique_class_period: { academicYear, dayOfWeek, classId, periodId } },
