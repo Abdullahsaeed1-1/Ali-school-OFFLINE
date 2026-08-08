@@ -41,21 +41,34 @@ function getJwtSecret(): string {
   return secret
 }
 
-/** Sets both tokens as httpOnly, Secure, SameSite=Lax cookies on the response. */
+/**
+ * Sets both tokens as httpOnly cookies. SameSite/Secure depend on
+ * NODE_ENV, not a fixed value — WebAdmin (Vercel) and Backend (Railway)
+ * are different registrable domains in production, and SameSite=Lax
+ * cookies are never sent on cross-site XHR/fetch (only top-level
+ * navigation), which silently broke /auth/refresh in production while
+ * looking identical to a working setup locally. Lax still works for
+ * local dev's localhost:5173 -> localhost:3000 because SameSite
+ * comparison ignores port — both count as the same site there, just not
+ * across two different real domains. SameSite=None requires Secure=true
+ * (browsers reject the combination otherwise), which is exactly what
+ * `secure: isProduction` already provides — the two flip together.
+ */
 function setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
   const isProduction = process.env.NODE_ENV === 'production'
+  const sameSite = isProduction ? ('none' as const) : ('lax' as const)
 
   res.cookie('accessToken', accessToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite,
     maxAge: ACCESS_COOKIE_MAX_AGE,
   })
 
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite,
     maxAge: REFRESH_COOKIE_MAX_AGE,
     path: '/api/auth', // scope refresh cookie to auth routes only
   })
@@ -165,7 +178,7 @@ export const refresh = async (req: Request<object, object, { refreshToken?: stri
     res.cookie('accessToken', newAccessToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite: isProduction ? 'none' : 'lax',
       maxAge: ACCESS_COOKIE_MAX_AGE,
     })
 
