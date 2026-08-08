@@ -248,14 +248,13 @@ export const getCapacityAdvisor = async (req: Request, res: Response) => {
   }
 }
 
-type ApplySafeFillBody = { teacherId?: string; classId?: string; subjectId?: string }
+// Required — guaranteed by applySafeFillBodySchema (schemas/capacityAdvisor.schemas.ts)
+// via the validate() middleware on the route, before this controller runs.
+type ApplySafeFillBody = { teacherId: string; classId: string; subjectId: string }
 
 export const applySafeFill = async (req: Request<object, object, ApplySafeFillBody>, res: Response) => {
   try {
     const { teacherId, classId, subjectId } = req.body
-    if (!teacherId || !classId || !subjectId) {
-      return res.status(400).json({ error: 'teacherId, classId, and subjectId are required', code: 'VALIDATION_ERROR' })
-    }
 
     // This writes to TeacherSubject directly, bypassing updateTeacher — so
     // Teacher Lock has to be checked here too, or a locked teacher's
@@ -284,21 +283,18 @@ export const applySafeFill = async (req: Request<object, object, ApplySafeFillBo
   }
 }
 
+// Required — guaranteed by applyReassignmentBodySchema (schemas/capacityAdvisor.schemas.ts)
+// via the validate() middleware on the route, before this controller runs.
 type ApplyReassignmentBody = {
-  toTeacherId?: string
-  fromTeacherId?: string
-  classId?: string
-  subjectId?: string
+  toTeacherId: string
+  fromTeacherId: string
+  classId: string
+  subjectId: string
 }
 
 export const applyReassignment = async (req: Request<object, object, ApplyReassignmentBody>, res: Response) => {
   try {
     const { toTeacherId, fromTeacherId, classId, subjectId } = req.body
-    if (!toTeacherId || !fromTeacherId || !classId || !subjectId) {
-      return res
-        .status(400)
-        .json({ error: 'toTeacherId, fromTeacherId, classId, and subjectId are required', code: 'VALIDATION_ERROR' })
-    }
 
     // This writes to TeacherSubject directly, bypassing updateTeacher — a
     // reassignment touches both sides (removes from one teacher, adds to

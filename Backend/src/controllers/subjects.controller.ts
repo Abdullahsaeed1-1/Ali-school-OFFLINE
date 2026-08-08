@@ -36,6 +36,11 @@ type SubjectPayload = {
   tier?: SubjectTier
 }
 
+// name is required here (unlike SubjectPayload above) — createSubjectBodySchema
+// (schemas/subjects.schemas.ts) already guarantees this by the time this
+// controller runs, via the validate() middleware on the route.
+type CreateSubjectPayload = SubjectPayload & { name: string }
+
 // ---------------------------------------------------------------------------
 // POST /api/subjects  (ADMIN only)
 // Previously there was no way to add a subject except hand-editing
@@ -48,16 +53,12 @@ type SubjectPayload = {
 // subject is flagged (not guessed) exactly like an unconfirmed seed entry
 // would be — see docs/ ground-truth rule.
 // ---------------------------------------------------------------------------
-export const createSubject = async (req: Request<object, object, SubjectPayload>, res: Response) => {
+export const createSubject = async (req: Request<object, object, CreateSubjectPayload>, res: Response) => {
   try {
-    const name = req.body.name?.trim()
+    const name = req.body.name.trim()
     const code = req.body.code?.trim() || null
     const isCore = req.body.isCore ?? true
     const tier = parseTier(req.body.tier) ?? SubjectTier.UNSET
-
-    if (!name) {
-      return res.status(400).json({ error: 'name is required', code: 'VALIDATION_ERROR' })
-    }
 
     const created = await prisma.subject.create({
       data: { name, code, isCore, tier },

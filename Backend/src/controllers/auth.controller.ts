@@ -15,15 +15,18 @@ const REFRESH_TOKEN_EXPIRY = '7d'
 const ACCESS_COOKIE_MAX_AGE = 30 * 60 * 1000 // 30 minutes in ms
 const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000 // 7 days in ms
 
+// Both required — guaranteed by loginBodySchema/changePasswordBodySchema
+// (schemas/auth.schemas.ts) via the validate() middleware on each route,
+// before this controller ever runs.
 type LoginBody = {
-  email?: string
-  password?: string
+  email: string
+  password: string
 }
 
 type PasswordBody = {
-  currentPassword?: string
-  newPassword?: string
-  confirmPassword?: string
+  currentPassword: string
+  newPassword: string
+  confirmPassword: string
 }
 
 type JwtPayload = {
@@ -70,11 +73,6 @@ function clearAuthCookies(res: Response): void {
 export const login = async (req: Request<object, object, LoginBody>, res: Response) => {
   try {
     const { email, password } = req.body
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'email and password are required', code: 'VALIDATION_ERROR' })
-    }
-
     const normalizedEmail = email.trim().toLowerCase()
 
     // Look up user — deliberately use the same error message whether the
@@ -239,23 +237,7 @@ export const changePassword = async (req: Request<object, object, PasswordBody>,
       return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' })
     }
 
-    const { currentPassword, newPassword, confirmPassword } = req.body
-
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      return res.status(400).json({ error: 'All password fields are required', code: 'VALIDATION_ERROR' })
-    }
-
-    if (newPassword.length < 8) {
-      return res
-        .status(400)
-        .json({ error: 'New password must be at least 8 characters', code: 'VALIDATION_ERROR' })
-    }
-
-    if (newPassword !== confirmPassword) {
-      return res
-        .status(400)
-        .json({ error: 'New password and confirmation do not match', code: 'VALIDATION_ERROR' })
-    }
+    const { currentPassword, newPassword } = req.body
 
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId },

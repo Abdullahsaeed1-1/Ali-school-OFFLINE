@@ -2,8 +2,10 @@ import type { Request, Response } from 'express'
 import { prisma } from '../config/prisma.js'
 import { handleControllerError } from '../utils/apiError.js'
 
+// Required — guaranteed by registerFcmTokenBodySchema (schemas/notifications.schemas.ts)
+// via the validate() middleware on the route, before this controller runs.
 type RegisterBody = {
-  fcmToken?: string
+  fcmToken: string
 }
 
 // ---------------------------------------------------------------------------
@@ -18,9 +20,6 @@ export const registerFcmToken = async (req: Request<object, object, RegisterBody
     }
 
     const { fcmToken } = req.body
-    if (!fcmToken) {
-      return res.status(400).json({ error: 'fcmToken is required', code: 'VALIDATION_ERROR' })
-    }
 
     if (!req.user.teacherId) {
       return res.status(404).json({ error: 'No teacher profile linked to this account', code: 'NOT_FOUND' })
