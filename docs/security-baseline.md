@@ -72,9 +72,9 @@ Not built yet, but the moment any feature accepts a file (teacher profile photo,
 
 ## 14. Pre-launch security gate
 Everything above is meant to be true before this system holds any real school data outside of testing/dev. Before a real launch (not just internal testing), explicitly re-check every section above, with special attention to §11–13, since they're the newest additions:
-- [ ] §6 Rate limiting — covers all credential-creating/resetting endpoints, not just login
-- [ ] §5 Input validation — every controller validates its input, not just auth
-- [ ] §2 Secrets — no hardcoded secrets/URLs anywhere in source (see root `CLAUDE.md`'s note on this), production `.env` values are real and rotated
-- [ ] §11 Dependency vulnerabilities — `npm audit` run and clean (or findings explicitly accepted)
-- [ ] §12 Error handling & information leakage — no stack traces/internal errors ever reach an API response
+- [x] §6 Rate limiting — covers all credential-creating/resetting endpoints, not just login. Done 2026-08-08: `POST /timetable/generate` and `PATCH /auth/password` were the 2 real gaps (found + closed) — see PENDING_QUESTIONS.md item 37.
+- [x] §5 Input validation — every controller validates its input, not just auth. Done 2026-08-08: systematic `zod` validation across all 9 controllers / 40 endpoints, built and verified in 3 reviewable chunks — see PENDING_QUESTIONS.md item 37.
+- [ ] §2 Secrets — no hardcoded secrets/URLs anywhere in source (see root `CLAUDE.md`'s note on this), production `.env` values are real and rotated. Partially done: no hardcoded secrets found anywhere in source, `.gitignore` verified against every real `.env` (item 37). Still outstanding: `JWT_SECRET`/`JWT_REFRESH_SECRET` are still the dev placeholders — must be rotated to real production values before going live.
+- [x] §11 Dependency vulnerabilities — `npm audit` run and clean (or findings explicitly accepted). Done 2026-08-08: 0 vulnerabilities on both Backend and web-admin after `npm audit fix` — see PENDING_QUESTIONS.md item 37.
+- [ ] §12 Error handling & information leakage — no stack traces/internal errors ever reach an API response. Audited 2026-08-08 and found already solid (every controller routes through `handleControllerError`, no leaks found) — not yet formally re-confirmed as part of a full pre-launch pass, so left unchecked here.
 - [ ] §13 File upload safety — only relevant once a file-upload feature exists, but must be done at the same time as that feature, not after

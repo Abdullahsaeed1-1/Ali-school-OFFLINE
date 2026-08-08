@@ -1937,3 +1937,94 @@ last):** Junior 0 unassigned/`OPTIMAL`, Girls 27 unassigned/`FEASIBLE`/
 22.6s, Boys 24 unassigned/`FEASIBLE`/31.9s — all within the established
 healthy range, `tsc --noEmit` clean on both Backend and web-admin. Not
 broken by any of the three additions above.
+
+## 37. Security-baseline hardening — §5 input validation, §6 rate limiting, §11 dependency audit, endpoint auth/authz audit (2026-08-08)
+
+**Status:** ✅ RESOLVED. Real launch-prep work, triggered by Abdullah
+signaling actual deployment prep was starting (see
+[[security-hardening-deferred-to-launch]] memory — this was the deferred
+work coming due, not proactive scope creep).
+
+**Audits first, fixes second.** Before changing anything: ran `npm audit`
+on both Backend and web-admin (found 2 and 3 high-severity findings
+respectively — all fixed via `npm audit fix`, zero vulnerabilities
+remaining on both; `react-router`'s fix landed via a same-major-line patch
+release, no v8 migration needed after all); audited the built web-admin
+production bundle directly for embedded secrets (clean — the only thing
+Vite exposes is the non-secret `VITE_API_BASE_URL`, no sourcemaps
+generated); read every route across all 9 Backend route files and
+confirmed every endpoint enforces `authMiddleware`, with `requireRole`
+everywhere a role restriction applies — verified live, not just by
+reading code, by hitting protected endpoints directly with no token, a
+forged token, and a valid token and confirming the expected 401/200 split
+at each step.
+
+**§6 Rate limiting — 2 real gaps found and fixed.** `POST
+/timetable/generate` (expensive — up to ~25s of solver CPU per call) and
+`PATCH /auth/password` (a credential-changing endpoint, same category as
+the already-limited `set-password`) had no rate limiter at all. Added
+20/15min and 5/15min limiters respectively. Verified live: hit
+`/auth/password` 6 times, got `429` exactly on the 6th; confirmed
+`/generate` still succeeds normally under the new limit
+(`RateLimit-Remaining` header decrementing correctly, no premature
+blocking) with a full solver run.
+
+**§5 Input validation — now systematic across all 9 controllers, 40
+endpoints, using `zod` (newly added — none of this existed before).**
+Built as 3 reviewable chunks rather than one large change:
+- **Chunk 1** — new `middleware/validate.ts` (the reusable pattern every
+  later chunk uses) + the trivial/light controllers (`auth`, `campuses`,
+  `notifications`, `subjects`, `capacityAdvisor`). One real infrastructure
+  finding along the way: Express 5's `req.query` is a getter with no
+  working setter — confirmed by direct test, not assumption — so the
+  middleware validates query params for rejection only and never tries to
+  reassign them; only `req.body` gets replaced with the parsed/defaulted
+  result.
+- **Chunk 2** — `classes.controller.ts`, the gnarliest shapes in the
+  codebase (the games-protection array + confirmed-boolean conditional
+  rule, the subject-quota array with duplicate detection). Preserved the
+  exact existing tolerance (e.g. numeric-string lecture numbers still
+  coerce and pass) rather than silently tightening behavior, with one
+  disclosed exception: `updateClassSubjects`'s `subjects` field used to
+  silently wipe a class's entire curriculum if sent as non-array garbage —
+  now rejects with a clean 400 instead. Judged silent data loss worse than
+  a stricter rejection; called out explicitly rather than left unmentioned.
+- **Chunk 3** — `teachers.controller.ts` (11 endpoints, the biggest file)
+  and `timetable.controller.ts`. Closed the one genuine range-validation
+  gap found during scoping: `targetPeriodsPerWeek`/`maxPeriodsPerWeek` had
+  zero bounds before this — now capped at 0–35, derived from the real
+  physical ceiling (7 periods × 5 confirmed teaching days,
+  docs/excel-ground-truth.md), not an invented number. Also found and
+  fixed a live crash: `generateTimetable`'s old code called
+  `req.body.campusId?.trim()` with no type guard, so a non-string
+  `campusId` threw an uncaught `TypeError` (opaque `500`) instead of a
+  clean `400` — verified fixed live.
+
+**Verification discipline held throughout:** every chunk got live
+rejection-path tests (malformed input → clean field-specific `400`),
+pass-through tests (well-formed input reaches real business logic instead
+of being over-rejected, proven without creating persistent test data by
+targeting nonexistent IDs so requests 404 downstream instead of
+mutating anything), at least one genuine real-data round-trip with
+verified restoration per chunk, and the standing 3-campus Generate
+regression check after every chunk. One real scare during chunk 3's
+regression check (Junior `500`, Girls hung past 2 minutes) turned out to
+be a stale orphaned `tsx watch` process from an earlier restart still
+holding port 3000, not a code regression — diagnosed by checking the
+actual server log before concluding anything, killed the stale process,
+reran clean, and confirmed Junior came back byte-for-byte identical to
+baseline.
+
+**Also done in the same pass, not security-baseline items but related
+launch prep:** git repo initialized (previously didn't exist at all) with
+a verified `.gitignore` — confirmed via `git check-ignore -v` against
+every `.env` and against three files containing real teacher names
+(deliberately excluded from history, kept local-only); pushed to GitHub;
+migrated the local dev database to Supabase (schema via `prisma migrate
+deploy` — required wiring `directUrl` into `schema.prisma`, since
+Supabase's pooled connection doesn't reliably support migrations — plus a
+custom data-copy script, since `pg_dump`/`psql` aren't installed in this
+environment; verified via a genuine before-copy diff against a
+freshly-reseeded throwaway schema, which caught a real difference — a
+teacher's manual lock that a naive reseed would have silently discarded —
+and a post-copy 3-campus Generate match against baseline).

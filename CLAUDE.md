@@ -66,6 +66,7 @@ See `docs/security-baseline.md` §8 for the full mobile production checklist.
 
 ## Where to look for more detail
 - `docs/security-baseline.md` — full security checklist (auth, secrets, RBAC, transport, input validation, mobile token storage, etc.)
+- `docs/deployment.md` — hosting decisions made so far (Supabase region, WebAdmin host) and open ones (Backend/solver host) — includes a real latency finding that constrains the Backend hosting choice, don't pick a region without checking it first
 - `docs/excel-ground-truth.md` — which classes/campuses are confirmed-real vs broken/empty in the source Excel, exact period timings, periods-per-week per subject
 - `docs/verification_needed.json` — exact list of things that need a real answer from the school before they can be safely coded
 - `docs/girls_full_grid.json` / `docs/boys_classsubject.json` — extracted real schedule/curriculum data
