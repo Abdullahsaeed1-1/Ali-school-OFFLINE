@@ -131,26 +131,19 @@ export const listClasses = async (req: Request, res: Response) => {
   }
 }
 
+// Required — guaranteed by createClassBodySchema (schemas/classes.schemas.ts)
+// via the validate() middleware on the route, before this controller runs:
+// name/campusId/section are non-empty strings, gamesProtectedLectures is
+// already deduped/sorted/range-checked, gamesProtectionConfirmed is the
+// literal true.
 type CreateClassPayload = {
-  name?: string
-  campusId?: string
-  section?: string
+  name: string
+  campusId: string
+  section: string
   gradeLevel?: string | null
   stream?: string | null
-  gamesProtectedLectures?: unknown
-  gamesProtectionConfirmed?: unknown
-}
-
-// Validates a games-protected-lectures payload: must be an array of
-// integers, each within 1-7 (the only real lecture indices — see
-// utils/school.ts's period model), deduped and sorted. Returns null if the
-// input isn't a valid array at all (caller decides what that means — empty
-// array vs "wasn't sent" are different, this only rejects the shape).
-function parseGamesProtectedLectures(value: unknown): number[] | null {
-  if (!Array.isArray(value)) return null
-  const nums = value.map((v) => Number(v))
-  if (nums.some((n) => !Number.isInteger(n) || n < 1 || n > 7)) return null
-  return [...new Set(nums)].sort((a, b) => a - b)
+  gamesProtectedLectures: number[]
+  gamesProtectionConfirmed: true
 }
 
 // ---------------------------------------------------------------------------
@@ -173,29 +166,13 @@ function parseGamesProtectedLectures(value: unknown): number[] | null {
 // ---------------------------------------------------------------------------
 export const createClass = async (req: Request<object, object, CreateClassPayload>, res: Response) => {
   try {
-    const name = req.body.name?.trim()
+    const name = req.body.name.trim()
     const campusId = req.body.campusId
-    const section = req.body.section?.trim()
+    const section = req.body.section.trim()
     const gradeLevel = req.body.gradeLevel?.trim() || null
     const stream = req.body.stream?.trim() || null
-    const gamesProtectionConfirmed = req.body.gamesProtectionConfirmed === true
-    const gamesProtectedLectures = parseGamesProtectedLectures(req.body.gamesProtectedLectures)
-
-    if (!name || !campusId || !section) {
-      return res.status(400).json({ error: 'name, campusId, and section are required', code: 'VALIDATION_ERROR' })
-    }
-    if (gamesProtectedLectures === null) {
-      return res
-        .status(400)
-        .json({ error: 'gamesProtectedLectures must be an array of lecture numbers 1-7 (can be empty)', code: 'VALIDATION_ERROR' })
-    }
-    if (!gamesProtectionConfirmed) {
-      return res.status(400).json({
-        error:
-          'gamesProtectionConfirmed must be explicitly confirmed true — every class needs a real answer for which periods (if any) Games is protected in, not a default.',
-        code: 'VALIDATION_ERROR',
-      })
-    }
+    const gamesProtectionConfirmed = req.body.gamesProtectionConfirmed
+    const gamesProtectedLectures = req.body.gamesProtectedLectures
 
     const campus = await prisma.campus.findUnique({ where: { id: campusId } })
     if (!campus) {
@@ -293,43 +270,28 @@ export const getClassById = async (req: Request<{ id: string }>, res: Response) 
   }
 }
 
-export const updateClass = async (req: Request<{ id: string }>, res: Response) => {
-  try {
-    const isActive = parseIsActive(req.body?.isActive)
-    const isLocked = parseIsActive(req.body?.isLocked)
-    // Games protection is editable here too (not just at creation) — the
-    // school's answer for a class can change (e.g. a grade's timing shifts),
-    // and this is the same "required, explicit, never a silent default"
-    // rule as createClass: if the caller sends gamesProtectedLectures at
-    // all, it must be confirmed alongside it in the same request.
-    const gamesProtectedLecturesProvided = req.body?.gamesProtectedLectures !== undefined
-    const gamesProtectedLectures = gamesProtectedLecturesProvided
-      ? parseGamesProtectedLectures(req.body.gamesProtectedLectures)
-      : undefined
+type UpdateClassPayload = {
+  isActive?: boolean
+  isLocked?: boolean
+  // Games protection is editable here too (not just at creation) — the
+  // school's answer for a class can change (e.g. a grade's timing shifts).
+  // Required, explicit, never a silent default — the same rule as
+  // createClass. Both the "at least one field provided" and "confirmed
+  // must be true alongside gamesProtectedLectures" rules are now enforced
+  // by updateClassBodySchema (schemas/classes.schemas.ts) before this
+  // controller runs, not by hand here.
+  gamesProtectedLectures?: number[]
+  gamesProtectionConfirmed?: boolean
+}
 
-    if (isActive === null && isLocked === null && !gamesProtectedLecturesProvided) {
-      return res
-        .status(400)
-        .json({ error: 'Provide isActive, isLocked, and/or gamesProtectedLectures', code: 'VALIDATION_ERROR' })
-    }
-    if (gamesProtectedLecturesProvided) {
-      if (gamesProtectedLectures === null) {
-        return res
-          .status(400)
-          .json({ error: 'gamesProtectedLectures must be an array of lecture numbers 1-7 (can be empty)', code: 'VALIDATION_ERROR' })
-      }
-      if (req.body.gamesProtectionConfirmed !== true) {
-        return res.status(400).json({
-          error: 'gamesProtectionConfirmed must be explicitly confirmed true when changing gamesProtectedLectures',
-          code: 'VALIDATION_ERROR',
-        })
-      }
-    }
+export const updateClass = async (req: Request<{ id: string }, object, UpdateClassPayload>, res: Response) => {
+  try {
+    const { isActive, isLocked, gamesProtectedLectures } = req.body
 
     const data: Prisma.ClassUpdateInput = {}
-    if (isActive !== null) data.isActive = isActive
-    if (isLocked !== null) data.isLocked = isLocked
-    if (gamesProtectedLectures !== undefined && gamesProtectedLectures !== null) {
+    if (isActive !== undefined) data.isActive = isActive
+    if (isLocked !== undefined) data.isLocked = isLocked
+    if (gamesProtectedLectures !== undefined) {
       data.gamesProtectedLectures = gamesProtectedLectures
       data.gamesProtectionConfirmed = true
     }
@@ -412,10 +374,16 @@ export const getClassLockImpact = async (req: Request<{ id: string }>, res: Resp
   }
 }
 
-type SubjectQuotaPayload = { subjectId?: string; periodsPerWeek?: number }
+// Required — guaranteed by updateClassSubjectsBodySchema (schemas/classes.schemas.ts).
+type SubjectQuotaPayload = { subjectId: string; periodsPerWeek: number }
 
+// Shape (subjectId is a non-empty string, periodsPerWeek is a non-negative
+// integer) and duplicate-subjectId detection are both enforced by
+// updateClassSubjectsBodySchema (schemas/classes.schemas.ts) before this
+// controller runs. What's left here is the one thing a schema genuinely
+// can't check — whether each subjectId actually exists in the database.
 export const updateClassSubjects = async (
-  req: Request<{ id: string }, object, { subjects?: SubjectQuotaPayload[] }>,
+  req: Request<{ id: string }, object, { subjects: SubjectQuotaPayload[] }>,
   res: Response,
 ) => {
   try {
@@ -424,21 +392,8 @@ export const updateClassSubjects = async (
       return res.status(404).json({ error: 'Class not found', code: 'NOT_FOUND' })
     }
 
-    const rows = Array.isArray(req.body.subjects) ? req.body.subjects : []
-    const quotas = rows.filter(
-      (item): item is Required<SubjectQuotaPayload> =>
-        typeof item?.subjectId === 'string' && Number.isInteger(item.periodsPerWeek) && (item.periodsPerWeek ?? -1) >= 0,
-    )
-    if (quotas.length !== rows.length) {
-      return res
-        .status(400)
-        .json({ error: 'Each subject entry needs a subjectId and a non-negative integer periodsPerWeek', code: 'VALIDATION_ERROR' })
-    }
-
+    const quotas = req.body.subjects
     const subjectIds = [...new Set(quotas.map((q) => q.subjectId))]
-    if (subjectIds.length !== quotas.length) {
-      return res.status(400).json({ error: 'Duplicate subjectId in the same request', code: 'VALIDATION_ERROR' })
-    }
     const subjects = subjectIds.length
       ? await prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true } })
       : []
