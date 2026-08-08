@@ -17,10 +17,24 @@ const loginRateLimiter = rateLimit({
   },
 })
 
+// Rate limit changing your own password to 5 attempts per 15 minutes per
+// IP — same limiter shape as teachers.routes.ts's setPasswordRateLimiter,
+// since this also creates/rotates a credential (§6 calls out
+// credential-creating/resetting endpoints specifically, not just login).
+const changePasswordRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Too many attempts. Please wait 15 minutes and try again.',
+  },
+})
+
 router.post('/login', loginRateLimiter, login)
 router.post('/refresh', refresh)
 router.post('/logout', logout)
 router.get('/me', authMiddleware, me)
-router.patch('/password', authMiddleware, changePassword)
+router.patch('/password', authMiddleware, changePasswordRateLimiter, changePassword)
 
 export default router
