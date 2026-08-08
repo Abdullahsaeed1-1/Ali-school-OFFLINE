@@ -78,7 +78,13 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   return res.status(500).json({ error: 'Something went wrong. Please try again.', code: 'INTERNAL_ERROR' })
 })
 
-const server = app.listen(PORT, () => {
+// Explicit '0.0.0.0' — Railway (and most container platforms) proxy in
+// from outside the container, so the server must accept connections on
+// every interface, not just loopback. Node's documented default when the
+// host arg is omitted is already "all interfaces" (:: or 0.0.0.0), but
+// leaving it implicit is exactly the kind of thing worth being explicit
+// about in a container context rather than relying on default behavior.
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`)
 })
 
