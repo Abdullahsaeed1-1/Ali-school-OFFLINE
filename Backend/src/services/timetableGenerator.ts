@@ -3,6 +3,7 @@ import { parseGamesProtectedLectures } from '../utils/gamesProtection.js'
 import { prisma } from '../config/prisma.js'
 import { periodDayType, weekdayOrder } from '../utils/school.js'
 import { computeCommittedPeriodsByTeacher, computeScheduledPeriodsByTeacher } from '../utils/teacherOccupancy.js'
+import { solveTimetable } from '../utils/solverClient.js'
 import { scheduleGamesDuty, type GamesDutyGap } from './gamesDutyScheduler.js'
 
 type GenerateInput = {
@@ -73,8 +74,6 @@ type SolveResponseBody = {
   teacherShortfalls: TeacherShortfall[]
   stats: { variableCount: number; solveTimeMs: number; solverStatus: string; tierWindowViolations: number }
 }
-
-const SOLVER_SERVICE_URL = process.env.SOLVER_SERVICE_URL ?? 'http://localhost:8001'
 
 // Transactions that touch every class of a full campus can run long — give
 // this one more headroom than Prisma's 5s default so a big campus doesn't
@@ -294,11 +293,7 @@ export async function generateTimetable({ campusId, academicYear }: GenerateInpu
       console.log(
         `[timetable] ${campus.name}: solving ${solverClasses.length} classes, ${solverTeachers.length} teachers...`,
       )
-      const response = await fetch(`${SOLVER_SERVICE_URL}/solve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      })
+      const response = await solveTimetable(requestBody)
       if (!response.ok) {
         throw new Error(`Solver service returned ${response.status}: ${await response.text()}`)
       }

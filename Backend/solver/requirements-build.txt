@@ -1,0 +1,21 @@
+# Packaging-only dependencies — not needed to run the solver in dev
+# (`uvicorn main:app`), only to build the standalone exe Electron spawns
+# (see docs/offline-conversion-plan.md Phase 3/4).
+#
+# Build command (from Backend/solver, venv active):
+#   pyinstaller --onedir --name aps-solver --distpath dist --workpath build \
+#     --specpath . --add-binary ".venv/Lib/site-packages/ortools/.libs/*.dll;ortools/.libs" \
+#     run_frozen.py
+#
+# --onedir, not --onefile: onefile's bootloader extracts to a temp dir and
+# re-launches the real program as a CHILD process, so killing the PID the
+# spawner gets only kills the bootloader and leaves the actual solver
+# process (and its held port) orphaned — confirmed by testing both modes.
+# onedir's exe IS the real process, no relaunch, kill() actually works.
+#
+# --add-binary is required: PyInstaller's dependency scanner doesn't find
+# ortools's native DLLs (abseil_dll.dll, ortools.dll, libprotobuf.dll, etc.)
+# on its own — they live in ortools/.libs/, not next to the .pyd files that
+# import them — so the exe crashes with "DLL load failed" without this flag.
+pyinstaller==6.22.0
+pyinstaller-hooks-contrib==2026.6

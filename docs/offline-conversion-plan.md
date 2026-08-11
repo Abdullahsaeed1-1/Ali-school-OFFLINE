@@ -247,7 +247,84 @@ repo, unrelated) both started clean; logged in as the seeded admin.
 
 ## Phase 3 — Solver: hosted microservice → local subprocess
 
-**Status: not started.**
+**Status: done (2026-08-11) for the solver executable and Node-side
+robustness. The actual spawn-on-launch/kill-on-quit wiring into an app
+lifecycle is Phase 4's job (Electron doesn't exist yet) — what's proven
+here is that the mechanism itself works correctly, standalone.**
+
+1. Kept the existing FastAPI/HTTP shape — `solve.py`/`duty_solve.py`
+   untouched. `Backend/solver/run_frozen.py` is a new standalone entrypoint
+   (`uvicorn.run(app, ...)` called programmatically) since a frozen exe has
+   no `uvicorn` CLI to resolve `main:app` against.
+2. Packaged with PyInstaller as `Backend/solver/dist/aps-solver/` —
+   **`--onedir`, not `--onefile`.** `--onefile` was tried first and
+   technically "worked," but its bootloader extracts to a temp dir and
+   re-launches the real program as a *child* process — killing the PID a
+   spawner gets only kills the bootloader, leaving the actual solver
+   process (and its held port) orphaned. Confirmed this failure mode
+   directly (see verification below) before switching to `--onedir`, whose
+   exe *is* the real process — no relaunch, no orphan.
+3. `--add-binary` required to actually bundle ortools's native DLLs
+   (`ortools.dll`, `abseil_dll.dll`, `libprotobuf.dll`, etc.) — PyInstaller's
+   dependency scanner doesn't find them on its own since they live in
+   `ortools/.libs/`, not next to the `.pyd` files that import them. Without
+   this the exe builds "successfully" but crashes immediately on launch
+   with `DLL load failed`. Full build command and rationale in
+   `Backend/solver/requirements-build.txt`.
+4. `Backend/src/utils/solverClient.ts` (new): centralizes both solver call
+   sites (`timetableGenerator.ts`, `gamesDutyScheduler.ts`) behind
+   `solveTimetable()`/`solveDuty()`. Adds what was missing before —
+   `AbortController`-based request timeouts (120s for `/solve`, matching
+   CP-SAT's own observed worst case of ~30s with generous headroom; 30s
+   for `/solve-duty`, which caps itself at 10s internally), one retry on
+   `ECONNREFUSED` specifically (the real failure mode once solver startup
+   is a race on every app launch — was previously untimeouted and
+   un-retried, tolerable only because the solver used to be an always-on
+   hosted service). Also exports `waitForSolverReady()`, a `/health`-poll
+   helper for Phase 4's Electron main process to await right after
+   spawning, before the first solve request.
+
+### Live verification (2026-08-11)
+
+- Built the exe, ran it directly (`./dist/aps-solver.exe`, the first
+  `--onefile` attempt): crashed immediately with `ImportError: DLL load
+  failed while importing cp_model_helper` — exactly the failure the
+  build-time "Library not found" warnings predicted. Fixed with
+  `--add-binary`; rebuilt; ran again — starts clean, `GET /health` → `{
+  "status": "ok" }`.
+- **Real solve through the packaged exe**: pointed the Node backend's
+  `SOLVER_SERVICE_URL` at the running exe, ran `POST
+  /api/timetable/generate` for Junior campus through the real API — `280
+  entries, 0 unassigned, OPTIMAL, 0 conflicts`, an exact match to Phase 1's
+  dev-Python-solver result for the same campus. Confirms the packaged exe
+  produces identical, correct output to the dev environment, not just "it
+  runs."
+- **Subprocess lifecycle proof** (the actual point of this phase): wrote a
+  throwaway Node script spawning the exe via `child_process.spawn`,
+  polling `/health` until ready, confirming a request works, then calling
+  `child.kill()`. On the first `--onefile` build: `child.kill()` returned
+  successfully and the `exit` event fired, but the solver was **still
+  reachable on its port afterward** — the orphan-process bug, caught
+  directly rather than assumed. Rebuilt `--onedir`; re-ran the identical
+  proof: spawned PID now matches the real `uvicorn`-reported server PID,
+  `kill()` terminates it, and the port is confirmed released a moment
+  later. This is exactly the failure mode Phase 4 needs to not ship.
+- **Full Generate through the onedir exe + new retry-wrapped client**: ran
+  Girls campus (exercises both `/solve` and `/solve-duty`, unlike Junior)
+  through the real API with `Backend/src/utils/solverClient.ts` active —
+  `200 OK` in 13s, `conflicts: []`. Direct DB check: 0 double-bookings.
+  Entry count reconciled exactly (467 assigned + 280 leftover from the
+  Junior test = 747 total; unassigned requirements never get a DB row, so
+  this isn't a discrepancy).
+- Cleanup: stopped all spawned processes (confirmed via process list — no
+  lingering `node`/`aps-solver.exe` tied to this repo), reseeded to
+  pristine state.
+
+**New gitignore entries** (`Backend/.gitignore`): `solver/build` and
+`solver/*.spec` — `solver/dist` was already covered by the existing bare
+`dist` rule. `Backend/solver/requirements-build.txt` tracks the two
+packaging-only dependencies (`pyinstaller`, `pyinstaller-hooks-contrib`)
+separately from `requirements.txt`'s runtime deps.
 
 1. Keep the existing FastAPI/HTTP shape (Node still calls `fetch()` against
    `localhost:8001`) rather than rewriting to a stdin/stdout subprocess

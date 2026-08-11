@@ -1,8 +1,7 @@
 import { DayOfWeek, HiringStatus, TeacherStatus } from '../constants/enums.js'
 import { parseGamesProtectedLectures } from '../utils/gamesProtection.js'
 import { periodDayType, weekdayOrder } from '../utils/school.js'
-
-const SOLVER_SERVICE_URL = process.env.SOLVER_SERVICE_URL ?? 'http://localhost:8001'
+import { solveDuty } from '../utils/solverClient.js'
 
 /**
  * Games rotation-duty (§17, corrected 2026-07-25) — a fundamentally
@@ -313,11 +312,7 @@ export async function scheduleGamesDuty(
       busySlots: academicBusyByTeacher.get(t.id) ?? [],
     }))
 
-    const response = await fetch(`${SOLVER_SERVICE_URL}/solve-duty`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groups: dutyGroupsForSolver, teachers: dutyTeachersForSolver }),
-    })
+    const response = await solveDuty({ groups: dutyGroupsForSolver, teachers: dutyTeachersForSolver })
     if (!response.ok) {
       throw new Error(`Duty solver service returned ${response.status}: ${await response.text()}`)
     }
