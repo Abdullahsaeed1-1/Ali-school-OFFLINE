@@ -41,36 +41,54 @@ function getJwtSecret(): string {
   return secret
 }
 
+// Refresh tokens are signed with their own secret, separate from
+// JWT_SECRET (access tokens) — so a leak of one secret doesn't let an
+// attacker forge the other token type. Previously JWT_REFRESH_SECRET was
+// declared in .env/docs but never actually read anywhere in code (refresh
+// tokens were signed with JWT_SECRET); wired up properly here as part of
+// the offline conversion's auth review.
+function getJwtRefreshSecret(): string {
+  const secret = process.env.JWT_REFRESH_SECRET
+  if (!secret) throw new Error('JWT_REFRESH_SECRET env var is not set')
+  return secret
+}
+
 /**
- * Sets both tokens as httpOnly cookies. SameSite/Secure depend on
- * NODE_ENV, not a fixed value — WebAdmin (Vercel) and Backend (Railway)
- * are different registrable domains in production, and SameSite=Lax
- * cookies are never sent on cross-site XHR/fetch (only top-level
- * navigation), which silently broke /auth/refresh in production while
- * looking identical to a working setup locally. Lax still works for
- * local dev's localhost:5173 -> localhost:3000 because SameSite
- * comparison ignores port — both count as the same site there, just not
- * across two different real domains. SameSite=None requires Secure=true
- * (browsers reject the combination otherwise), which is exactly what
- * `secure: isProduction` already provides — the two flip together.
+ * Sets both tokens as httpOnly cookies. Always SameSite=Lax, Secure=false —
+ * this app now serves WebAdmin's static build and the API from the same
+ * origin (Electron's local backend, see docs/offline-conversion-plan.md
+ * Phase 4), so the old NODE_ENV-branched SameSite=None/Secure=true (needed
+ * only because Vercel/Railway were different registrable domains) no
+ * longer applies; Lax is correct for same-site requests regardless of
+ * port. Secure=false is intentional too: this app is reached over plain
+ * HTTP on the school's local network (no TLS cert for a LAN IP) — a
+ * documented, accepted limitation for offline/LAN use, not an oversight
+ * (see docs/security-baseline.md's offline-mode exception to "HTTPS only").
  */
 function setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
-  const isProduction = process.env.NODE_ENV === 'production'
-  const sameSite = isProduction ? ('none' as const) : ('lax' as const)
-
   res.cookie('accessToken', accessToken, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite,
+    secure: false,
+    sameSite: 'lax',
     maxAge: ACCESS_COOKIE_MAX_AGE,
   })
 
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite,
+    secure: false,
+    sameSite: 'lax',
     maxAge: REFRESH_COOKIE_MAX_AGE,
     path: '/api/auth', // scope refresh cookie to auth routes only
+  })
+}
+
+/** Sets just the accessToken cookie — used by /refresh, which only reissues that one. */
+function setAccessTokenCookie(res: Response, accessToken: string): void {
+  res.cookie('accessToken', accessToken, {
+    httpOnly: true,
+    secure: false,
+    sameSite: 'lax',
+    maxAge: ACCESS_COOKIE_MAX_AGE,
   })
 }
 
@@ -98,8 +116,10 @@ export const login = async (req: Request<object, object, LoginBody>, res: Respon
     }
 
     let secret: string
+    let refreshSecret: string
     try {
       secret = getJwtSecret()
+      refreshSecret = getJwtRefreshSecret()
     } catch {
       return res.status(500).json({ error: 'Server configuration error', code: 'SERVER_CONFIG_ERROR' })
     }
@@ -107,7 +127,7 @@ export const login = async (req: Request<object, object, LoginBody>, res: Respon
     const payload: JwtPayload = { userId: user.id, role: user.role, teacherId: user.teacherId }
 
     const accessToken = jwt.sign(payload, secret, { expiresIn: ACCESS_TOKEN_EXPIRY })
-    const refreshToken = jwt.sign({ userId: user.id }, secret, { expiresIn: REFRESH_TOKEN_EXPIRY })
+    const refreshToken = jwt.sign({ userId: user.id }, refreshSecret, { expiresIn: REFRESH_TOKEN_EXPIRY })
 
     // Hash the refresh token before storing — a DB leak of plaintext refresh
     // tokens would let an attacker impersonate users for up to 7 days without
@@ -144,8 +164,10 @@ export const refresh = async (req: Request<object, object, { refreshToken?: stri
     }
 
     let secret: string
+    let refreshSecret: string
     try {
       secret = getJwtSecret()
+      refreshSecret = getJwtRefreshSecret()
     } catch {
       return res.status(500).json({ error: 'Server configuration error', code: 'SERVER_CONFIG_ERROR' })
     }
@@ -153,7 +175,7 @@ export const refresh = async (req: Request<object, object, { refreshToken?: stri
     // Verify the JWT signature and expiry first — fast fail before hitting the DB.
     let decoded: { userId: string }
     try {
-      decoded = jwt.verify(incomingRefreshToken, secret) as { userId: string }
+      decoded = jwt.verify(incomingRefreshToken, refreshSecret) as { userId: string }
     } catch {
       return res.status(401).json({ error: 'Invalid or expired refresh token', code: 'INVALID_SESSION' })
     }
@@ -174,13 +196,7 @@ export const refresh = async (req: Request<object, object, { refreshToken?: stri
       { expiresIn: ACCESS_TOKEN_EXPIRY },
     )
 
-    const isProduction = process.env.NODE_ENV === 'production'
-    res.cookie('accessToken', newAccessToken, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? 'none' : 'lax',
-      maxAge: ACCESS_COOKIE_MAX_AGE,
-    })
+    setAccessTokenCookie(res, newAccessToken)
 
     return res.status(200).json({ ok: true, accessToken: newAccessToken })
   } catch (error) {
@@ -199,8 +215,8 @@ export const logout = async (req: Request<object, object, { refreshToken?: strin
     // If the cookie is already missing, still clear cookies and return 200.
     if (incomingRefreshToken) {
       try {
-        const secret = getJwtSecret()
-        const decoded = jwt.verify(incomingRefreshToken, secret) as { userId: string }
+        const refreshSecret = getJwtRefreshSecret()
+        const decoded = jwt.verify(incomingRefreshToken, refreshSecret) as { userId: string }
         await prisma.user.update({
           where: { id: decoded.userId },
           data: { refreshToken: null },

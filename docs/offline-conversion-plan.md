@@ -159,7 +159,54 @@ repo, unrelated) both started clean; logged in as the seeded admin.
 
 ## Phase 2 — Auth: simplify for LAN, single-machine-at-a-time use
 
-**Status: not started.**
+**Status: done (2026-08-11).**
+
+1. `Backend/src/controllers/auth.controller.ts`: `setAuthCookies` (login)
+   and the `/refresh` handler's cookie-setting no longer branch on
+   `NODE_ENV` — always `SameSite=Lax`, `Secure=false` now. The old
+   `isProduction`-gated `SameSite=None`/`Secure=true` existed solely to
+   route around Vercel↔Railway being different registrable domains, which
+   no longer applies. Extracted the duplicated single-cookie logic in
+   `/refresh` into a shared `setAccessTokenCookie` helper.
+2. **`JWT_REFRESH_SECRET` wired up properly** (was declared in
+   `.env`/docs but never read — refresh tokens were signed with
+   `JWT_SECRET`, same as access tokens). Added `getJwtRefreshSecret()`
+   alongside the existing `getJwtSecret()`; refresh tokens are now signed
+   at login and verified at `/refresh` and `/logout` with their own
+   dedicated secret, not the access-token one.
+3. Multi-staff-per-machine: confirmed the existing one-`refreshToken`
+   -per-`User`-row model already handles this correctly with no schema
+   change — verified live below.
+
+### Live verification (2026-08-11)
+
+- `tsc --noEmit`: clean.
+- **Cookie flags**: logged in, inspected raw `Set-Cookie` headers —
+  confirmed `SameSite=Lax` with no `Secure` flag on both `accessToken` and
+  `refreshToken`, matching the new policy exactly (no more
+  environment-dependent branching).
+- **Refresh token uses its own secret**: extracted the issued
+  `refreshToken` and verified it directly with `jsonwebtoken` — rejected
+  by the access-token secret (`invalid signature`), accepted by the
+  dedicated refresh secret. Confirms access and refresh tokens are no
+  longer interchangeable.
+- **Full auth cycle**: `POST /refresh` → `200`, `GET /me` immediately
+  after → returns the correct user, `POST /logout` → `200`, `POST
+  /refresh` again after logout → `401` (DB-stored refresh token hash
+  correctly cleared, old cookie can't be replayed).
+- **Multi-account, same machine** (the actual motivating case for this
+  phase): gave a seeded teacher an email + login credentials, logged them
+  in on a *separate* cookie jar while the admin's session (a different
+  cookie jar) stayed active. Both `GET /me` calls returned the correct,
+  distinct user simultaneously. Logged the teacher out — their session
+  correctly returned `401` afterward, while the admin's session,
+  untouched, still returned `200`. Confirms one staff member's
+  login/logout has zero effect on another's concurrent session on the
+  same computer.
+- Cleanup: reseeded to remove the test teacher's email/login account
+  (`seed.ts` wipes `Teacher`/linked `User` rows on every run, so this
+  fully restores pristine state — unlike Phase 1's stray Subject, nothing
+  needed manual removal here).
 
 1. Cookies become same-origin to every client, whether that client is the
    host machine's own Electron window or another laptop's browser hitting
