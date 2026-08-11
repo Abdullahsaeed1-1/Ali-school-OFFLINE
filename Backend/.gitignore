@@ -8,3 +8,7 @@ dist
 
 # Runtime logs (e.g. Backend/solver/uvicorn.log from local dev runs)
 *.log
+
+# Local SQLite database (offline conversion — each machine has its own)
+prisma/*.db
+prisma/*.db-journal

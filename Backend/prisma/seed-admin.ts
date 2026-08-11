@@ -17,7 +17,11 @@
 
 import 'dotenv/config'
 import bcrypt from 'bcrypt'
-import { PrismaClient, Role } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
+
+// Role is a plain validated string now (SQLite has no enum column type —
+// see Backend/src/constants/enums.ts for the full app-side definition).
+const Role = { ADMIN: 'ADMIN' } as const
 
 const prisma = new PrismaClient()
 const SALT_ROUNDS = 12

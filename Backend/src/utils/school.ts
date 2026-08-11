@@ -1,4 +1,4 @@
-import { CampusType, DayOfWeek } from '@prisma/client'
+import { CampusType, DayOfWeek } from '../constants/enums.js'
 
 export const weekdayOrder: DayOfWeek[] = [
   DayOfWeek.MONDAY,

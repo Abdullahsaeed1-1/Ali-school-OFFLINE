@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
-import { Prisma, SubjectTier } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { SubjectTier } from '../constants/enums.js'
 import { prisma } from '../config/prisma.js'
 import { handleControllerError, sendError } from '../utils/apiError.js'
 import { computeScheduledPeriodsByTeacher } from '../utils/teacherOccupancy.js'
@@ -123,7 +124,7 @@ export const getCapacityAdvisor = async (req: Request, res: Response) => {
         subjectId: cs.subjectId,
         subjectName: cs.subject.name,
         periodsPerWeek: cs.periodsPerWeek,
-        tier: cs.subject.tier,
+        tier: cs.subject.tier as SubjectTier,
       })
       uncoveredGapsByCampus.set(cs.class.campusId, list)
     }

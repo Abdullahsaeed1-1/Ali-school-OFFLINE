@@ -172,7 +172,7 @@ async function main() {
         ...c,
         stream: 'JUNIOR',
         campusId: junior.id,
-        gamesProtectedLectures: gamesProtectionFor(c.name, c.gradeLevel),
+        gamesProtectedLectures: JSON.stringify(gamesProtectionFor(c.name, c.gradeLevel)),
         gamesProtectionConfirmed: true,
       },
     })
@@ -200,7 +200,7 @@ async function main() {
       data: {
         ...c,
         campusId: girls.id,
-        gamesProtectedLectures: gamesProtectionFor(c.name, c.gradeLevel),
+        gamesProtectedLectures: JSON.stringify(gamesProtectionFor(c.name, c.gradeLevel)),
         gamesProtectionConfirmed: true,
       },
     })
@@ -227,7 +227,7 @@ async function main() {
       data: {
         ...c,
         campusId: boys.id,
-        gamesProtectedLectures: gamesProtectionFor(c.name, c.gradeLevel),
+        gamesProtectedLectures: JSON.stringify(gamesProtectionFor(c.name, c.gradeLevel)),
         gamesProtectionConfirmed: true,
       },
     })

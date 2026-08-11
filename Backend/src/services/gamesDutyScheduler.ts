@@ -1,4 +1,5 @@
-import { DayOfWeek, HiringStatus, TeacherStatus } from '@prisma/client'
+import { DayOfWeek, HiringStatus, TeacherStatus } from '../constants/enums.js'
+import { parseGamesProtectedLectures } from '../utils/gamesProtection.js'
 import { periodDayType, weekdayOrder } from '../utils/school.js'
 
 const SOLVER_SERVICE_URL = process.env.SOLVER_SERVICE_URL ?? 'http://localhost:8001'
@@ -249,7 +250,7 @@ export async function scheduleGamesDuty(
       // must never cross). If nothing's open in this window, the class
       // genuinely has no room for Games today — reported as an honest
       // shortfall, not silently placed in a CORE_EARLY period.
-      const candidates = candidatePeriodsFor(day, cls.gamesProtectedLectures)
+      const candidates = candidatePeriodsFor(day, parseGamesProtectedLectures(cls.gamesProtectedLectures))
 
       while (remaining > 0 && (placedToday.get(day) ?? 0) < maxPerDay) {
         const openSlot = candidates.find((slot) => !classBusy.has(`${cls.id}:${day}:${slot.periodId}`))

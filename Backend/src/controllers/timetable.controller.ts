@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { DayOfWeek } from '@prisma/client'
+import { DayOfWeek } from '../constants/enums.js'
 import { prisma } from '../config/prisma.js'
 import { generateTimetable as runGenerator } from '../services/timetableGenerator.js'
 import { handleControllerError, sendError } from '../utils/apiError.js'

@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { CampusType } from '@prisma/client'
+import { CampusType } from '../constants/enums.js'
 import { prisma } from '../config/prisma.js'
 import { campusTypeLabel } from '../utils/school.js'
 import { handleControllerError } from '../utils/apiError.js'

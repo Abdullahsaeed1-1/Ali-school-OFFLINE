@@ -1,4 +1,5 @@
-import { DayOfWeek, TeacherStatus } from '@prisma/client'
+import { DayOfWeek, TeacherStatus } from '../constants/enums.js'
+import { parseGamesProtectedLectures } from '../utils/gamesProtection.js'
 import { prisma } from '../config/prisma.js'
 import { periodDayType, weekdayOrder } from '../utils/school.js'
 import { computeCommittedPeriodsByTeacher, computeScheduledPeriodsByTeacher } from '../utils/teacherOccupancy.js'
@@ -243,7 +244,7 @@ export async function generateTimetable({ campusId, academicYear }: GenerateInpu
       const solverClasses: SolverClass[] = classes.map((cls) => ({
         id: cls.id,
         name: cls.name,
-        gamesProtectedLectures: cls.gamesProtectedLectures,
+        gamesProtectedLectures: parseGamesProtectedLectures(cls.gamesProtectedLectures),
         requirements: cls.classSubjects
           .filter((cs) => cs.periodsPerWeek > 0)
           .filter((cs) => gamesHasRealEligibility || cs.subject.id !== gamesSubject?.id)

@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express'
 import bcrypt from 'bcrypt'
-import { Prisma, TeacherStatus, HiringStatus, DayOfWeek } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { TeacherStatus, HiringStatus, DayOfWeek } from '../constants/enums.js'
 import { prisma } from '../config/prisma.js'
 import { handleControllerError, sendError } from '../utils/apiError.js'
 import { computeScheduledPeriodsByTeacher } from '../utils/teacherOccupancy.js'
@@ -152,8 +153,8 @@ async function getTeacherDetail(id: string): Promise<TeacherDetailDto | null> {
     currentPeriods: scheduledByTeacher.get(teacher.id) ?? 0,
     targetPeriodsPerWeek: teacher.targetPeriodsPerWeek,
     maxPeriodsPerWeek: teacher.maxPeriodsPerWeek,
-    status: teacher.status,
-    hiringStatus: teacher.hiringStatus,
+    status: teacher.status as TeacherStatus,
+    hiringStatus: teacher.hiringStatus as HiringStatus,
     isLocked: teacher.isLocked,
     updatedAt: teacher.updatedAt.toISOString(),
     eligibilities: teacher.teacherSubjects.map((item) => ({
@@ -184,10 +185,10 @@ export const listTeachers = async (req: Request, res: Response) => {
     ...(status ? { status } : {}),
     ...(search
       ? {
-          OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { email: { contains: search, mode: 'insensitive' } },
-          ],
+          // No `mode: 'insensitive'` — SQLite has no such filter option (that's
+          // Postgres/MySQL-only). Not needed anyway: SQLite's `contains`
+          // (LIKE-based) is already case-insensitive by default for ASCII text.
+          OR: [{ name: { contains: search } }, { email: { contains: search } }],
         }
       : {}),
     ...(subjectId

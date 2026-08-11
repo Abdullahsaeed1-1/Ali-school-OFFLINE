@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express'
 import jwt from 'jsonwebtoken'
-import { Role } from '@prisma/client'
+import { Role } from '../constants/enums.js'
 
 export type AuthenticatedUser = {
   userId: string

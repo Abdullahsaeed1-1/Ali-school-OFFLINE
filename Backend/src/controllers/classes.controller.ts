@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma.js'
 import { handleControllerError } from '../utils/apiError.js'
 import { computeScheduledPeriodsByTeacher } from '../utils/teacherOccupancy.js'
+import { parseGamesProtectedLectures, serializeGamesProtectedLectures } from '../utils/gamesProtection.js'
 
 // Matches the default used across the rest of the API.
 const ACADEMIC_YEAR = '2026-2027'
@@ -119,7 +120,7 @@ export const listClasses = async (req: Request, res: Response) => {
         campusName: cls.campus.name,
         isActive: cls.isActive,
         isLocked: cls.isLocked,
-        gamesProtectedLectures: cls.gamesProtectedLectures,
+        gamesProtectedLectures: parseGamesProtectedLectures(cls.gamesProtectedLectures),
         gamesProtectionConfirmed: cls.gamesProtectionConfirmed,
         subjectCount: cls._count.classSubjects,
         eligibilityCount: cls._count.teacherSubjects,
@@ -180,7 +181,15 @@ export const createClass = async (req: Request<object, object, CreateClassPayloa
     }
 
     const created = await prisma.class.create({
-      data: { name, campusId, section, gradeLevel, stream, gamesProtectedLectures, gamesProtectionConfirmed },
+      data: {
+        name,
+        campusId,
+        section,
+        gradeLevel,
+        stream,
+        gamesProtectedLectures: serializeGamesProtectedLectures(gamesProtectedLectures),
+        gamesProtectionConfirmed,
+      },
     })
 
     return res.status(201).json({
@@ -194,7 +203,7 @@ export const createClass = async (req: Request<object, object, CreateClassPayloa
         campusName: campus.name,
         isActive: created.isActive,
         isLocked: created.isLocked,
-        gamesProtectedLectures: created.gamesProtectedLectures,
+        gamesProtectedLectures: parseGamesProtectedLectures(created.gamesProtectedLectures),
         gamesProtectionConfirmed: created.gamesProtectionConfirmed,
         subjectCount: 0,
         eligibilityCount: 0,
@@ -247,7 +256,7 @@ export const getClassById = async (req: Request<{ id: string }>, res: Response) 
         campusName: cls.campus.name,
         isActive: cls.isActive,
         isLocked: cls.isLocked,
-        gamesProtectedLectures: cls.gamesProtectedLectures,
+        gamesProtectedLectures: parseGamesProtectedLectures(cls.gamesProtectedLectures),
         gamesProtectionConfirmed: cls.gamesProtectionConfirmed,
         subjectCount: cls._count.classSubjects,
         eligibilityCount: cls._count.teacherSubjects,
@@ -292,7 +301,7 @@ export const updateClass = async (req: Request<{ id: string }, object, UpdateCla
     if (isActive !== undefined) data.isActive = isActive
     if (isLocked !== undefined) data.isLocked = isLocked
     if (gamesProtectedLectures !== undefined) {
-      data.gamesProtectedLectures = gamesProtectedLectures
+      data.gamesProtectedLectures = serializeGamesProtectedLectures(gamesProtectedLectures)
       data.gamesProtectionConfirmed = true
     }
 
@@ -307,7 +316,7 @@ export const updateClass = async (req: Request<{ id: string }, object, UpdateCla
         id: updated.id,
         isActive: updated.isActive,
         isLocked: updated.isLocked,
-        gamesProtectedLectures: updated.gamesProtectedLectures,
+        gamesProtectedLectures: parseGamesProtectedLectures(updated.gamesProtectedLectures),
         gamesProtectionConfirmed: updated.gamesProtectionConfirmed,
         campusName: updated.campus.name,
       },

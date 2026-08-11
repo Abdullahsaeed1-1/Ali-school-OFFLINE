@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { HiringStatus } from '@prisma/client'
+import { HiringStatus } from '../constants/enums.js'
 import { prisma } from '../config/prisma.js'
 import { handleControllerError } from '../utils/apiError.js'
 

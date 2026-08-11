@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
-import { Prisma, SubjectTier } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { SubjectTier } from '../constants/enums.js'
 import { prisma } from '../config/prisma.js'
 import { handleControllerError } from '../utils/apiError.js'
 
