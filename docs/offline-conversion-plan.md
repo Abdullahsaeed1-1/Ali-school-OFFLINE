@@ -450,17 +450,17 @@ installed and run — not just "the build succeeded"):**
 
 **What's NOT yet done** (explicitly out of scope for this pass, flagged
 rather than silently skipped):
-- Code signing — every `signtool.exe` step during the build logged "no
-  signing info identified, signing is skipped." An unsigned installer will
-  trigger a Windows SmartScreen warning on other machines; buying and
-  wiring in a code-signing certificate is a real cost/process decision for
-  Abdullah, not something to default into.
+- Code signing — **deliberately deferred, a decision, not a gap.**
+  Confirmed with Abdullah 2026-08-12: stay unsigned while the app is still
+  being actively tested and changed; buy and wire in a real
+  code-signing certificate once it's finalized, not before. Every
+  `signtool.exe` step during the build logs "no signing info identified,
+  signing is skipped" — expected. Consequence to keep in mind: unsigned
+  means Windows SmartScreen will warn on first run on other machines.
 - A custom app icon (currently Electron's default) and installer branding
-  — cosmetic, deferred.
-- A first-run UI showing the generated admin password (currently only
-  logged to the console / written to `config.json`) — a real gap for a
-  non-technical end user installing this for the first time with no
-  terminal access. Follow-up work, not done here.
+  — cosmetic, still deferred.
+- ~~A first-run UI showing the generated admin password~~ — **done, see
+  addendum below.**
 
 1. New `desktop/` folder holding the Electron main process.
 2. **Backend runs as a spawned child process using a real Node executable,
@@ -488,21 +488,129 @@ rather than silently skipped):
    migrations against it and seed the admin account.
 6. `electron-builder` config targeting a Windows NSIS installer (`.exe`).
 
+### Addendum (2026-08-12) — first-run UI
+
+Requirement from Abdullah: he hands over the installer file and the
+school runs it themselves — no manual setup per install, no terminal
+access to read a generated password off a console no one will see.
+
+1. `desktop/first-run.html` — a small static page showing the
+   auto-generated admin email + password (large, monospace, one-click
+   copy), a note that this only appears once, and a "Continue" button.
+   Receives the credentials via URL query params when loaded (no IPC/
+   preload needed — it's fully local, read-only display of data that
+   only exists because this exact process just generated it).
+2. `desktop/main.js`: `showFirstRunWindow()` opens this page **in
+   parallel with** `ensureDatabase()`/`startBackendStack()`, not after —
+   Phase 4's own verification found first real launch can take 20-60s
+   (Defender scanning the fresh install), so the credentials screen
+   doubles as the wait indicator instead of a blank window. "Continue"
+   calls `window.close()`; the main process's `'closed'` handler on that
+   window is the signal to proceed, no round-trip needed.
+3. **Caught by review before testing, not by a failed run:** the
+   generic `app.on('window-all-closed', ...)` handler would have fired
+   the instant the *first-run* window closed too (Electron fires it
+   whenever open-window count hits zero, regardless of which window
+   closed) — quitting the whole app the moment the school clicked
+   "Continue," before the main window ever opened. Fixed by tying the
+   quit-on-close behavior to the main window's own `'closed'` event
+   specifically, not the app-wide event.
+4. `isFirstRun` is now computed once in `main()` (new config generated
+   AND no db file yet) and threaded through to both `ensureDatabase`
+   (gates seeding) and the credentials-window decision, so the two can't
+   disagree.
+5. Startup failures that happen while the credentials window is still
+   open now close that window and show a native `dialog.showErrorBox`
+   with the real error — previously a failure here would have left an
+   orphaned window with no explanation and only a console error no one
+   would see.
+
+**Live-verified (2026-08-12, dev mode):** fresh `userData` → launched →
+confirmed via process enumeration that the first-run window opened
+(title "Ali Public School — First-Time Setup") while migration/seed/
+solver/backend all ran in the background per the log timestamps — solver
+and backend were both already `ready` by the time the window was still
+open. Closed the window (simulating "Continue") — confirmed the main
+window opened correctly and the app did **not** quit prematurely (the
+bug described above, confirmed fixed). Logged in with the *exact*
+password shown on screen — real proof the displayed credentials are the
+real ones, not a placeholder. Quit cleanly, confirmed both ports
+released. Relaunched from the now-existing `userData` — confirmed the
+first-run window did **not** appear the second time (straight to the
+main window, log shows "No pending migrations to apply," no reseed).
+
+**Real installer, this addendum (2026-08-12):** rebuilt and installed.
+Caught one packaging bug immediately: `first-run.html` wasn't in
+`desktop/package.json`'s `files` list (only `main.js`/`package.json`
+were), so the credentials page would have 404'd inside the packaged
+`app.asar` the moment a real user hit first-run — dev mode never caught
+this since it loads straight off disk, not from an archive. Fixed, and
+worth noting as a category: anything `main.js` loads by relative path
+needs to be in that list explicitly, `files` doesn't default to "whatever
+main.js happens to reference."
+
+On the first real-install retest after that fix, backend startup missed
+its (then 60s) readiness timeout with no diagnosable cause — the
+intended `console.error` never appeared in the captured log, most likely
+lost to an async-stderr-write-then-immediate-`app.quit()` race on
+Windows (a real, if second-order, finding — not chased down further
+since the fix generalizes regardless of the exact mechanism). Rather than
+just retry and hope, added `writeCrashLog()` — a synchronous
+`fs.appendFileSync` to `userData/startup-error.log`, referenced in the
+error dialog shown to the user — so a real failure is diagnosable by
+Abdullah without a dev console, and bumped both readiness timeouts from
+60s to 120s (observed range across repeated real-install tests: ~20s to
+just over 60s; 120s leaves actual margin instead of sitting right at the
+edge). Rebuilt again — this run's backend became ready in ~40s, under
+budget either way, so the original timeout-miss reads as one slow outlier
+rather than every run being marginal.
+
+**Final full pass, real installed app, first-run UI end to end:**
+credentials window opened showing real generated values, logged in with
+the exact displayed password (`200`), closed the window and confirmed
+the main window opened (no premature quit), hit the server via its real
+LAN IP (`200`), ran a full Generate Timetable through the installed
+backend+solver (`200`), quit and confirmed both ports released with zero
+lingering processes. Uninstalled via the generated uninstaller, removed
+the leftover empty install directory, cleared test `userData`. Confirmed
+clean afterward.
+
 ## Phase 5 — Cleanup
 
-**Status: not started.**
+**Status: done (2026-08-12).**
 
-1. `docs/deployment.md` documents Supabase region + Vercel/Railway
-   topology that no longer applies — update or archive once Phases 1-4
-   are working, not before (don't invalidate the historical record while
-   still mid-migration).
-2. Root `CLAUDE.md` references Vercel/Railway/Supabase throughout — update
-   after the conversion is actually working, not as a blocking step.
-3. Remove now-dead env vars (`DIRECT_URL`; `WEBADMIN_ORIGIN`/
-   `FLUTTER_WEB_ORIGIN` per the Phase 2 CORS decision above).
-4. `mobile-app/` is untouched by any of this — out of scope, keeps
-   pointing at whatever backend deployment (if any) is decided for it
-   separately in the future.
+1. `docs/deployment.md` rewritten from scratch — the Supabase
+   region/Vercel/Railway content it had was entirely about the *original*
+   online repo's decisions, none of it applicable here. Now a short
+   pointer describing this repo's actual distribution (Electron/NSIS
+   installer), the build command, and the code-signing decision — full
+   architectural detail stays in this file (`offline-conversion-plan.md`)
+   rather than being duplicated.
+2. Root `CLAUDE.md`: added an "OFFLINE CONVERSION REPO" banner at the top
+   (previously nothing in the file identified this as the converted copy
+   at all), updated the repo layout tree (`desktop/`, `web-admin/`
+   lowercase, `mobile-app/` lowercase, SQLite not PostgreSQL), tech stack
+   section (SQLite conversion, enums-as-strings, Electron), the HTTPS
+   line in the security baseline (offline LAN exception, doesn't relax
+   the rule elsewhere), the Postgres-host backup line (replaced with the
+   real local-file-backup responsibility), and the "where to look"
+   pointers (added this file, corrected `deployment.md`'s description).
+   Still 84 lines — comfortably under the file's own ~150-200 line budget.
+3. `docs/security-baseline.md` §4: added the LAN/HTTP exception this
+   offline app relies on, explicit that it's scoped to this app's LAN
+   traffic only and doesn't relax HTTPS-only anywhere else (mobile app,
+   any future hosted piece).
+4. **Corrected a stale assumption from the original Phase 2 plan**,
+   rather than blindly executing it: that plan said to remove
+   `WEBADMIN_ORIGIN`/`FLUTTER_WEB_ORIGIN` as "now-dead env vars." They're
+   not dead — Phase 4's actual implementation kept CORS untouched on
+   purpose, because local dev (`npm run dev` against the Vite server on
+   5173) is genuinely cross-origin and still needs it; only the packaged
+   app's same-origin serving makes CORS a non-issue, not the env vars
+   themselves. Removing them would have broken local dev. `DIRECT_URL`
+   (genuinely dead, Postgres-only) was already removed in Phase 1.
+5. `mobile-app/` — confirmed still untouched, out of scope, exactly as
+   planned. No action needed.
 
 ## Open items carried forward (not blocking, revisit later)
 

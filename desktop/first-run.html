@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Ali Public School — First-Time Setup</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f4f5f7;
+    color: #1a1a2e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+  }
+  .card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    padding: 32px 36px;
+    width: 480px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 24px; }
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b7280;
+    margin-bottom: 4px;
+  }
+  .field-value {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f4f5f7;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .field-value code {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 15px;
+    flex: 1;
+    user-select: all;
+    word-break: break-all;
+  }
+  .copy-btn {
+    border: none;
+    background: #e5e7eb;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #374151;
+    flex-shrink: 0;
+  }
+  .copy-btn:hover { background: #d1d5db; }
+  .copy-btn.copied { background: #16a34a; color: #fff; }
+  .warning {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    color: #92400e;
+    margin: 18px 0;
+  }
+  .continue-btn {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: #1a1a2e;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .continue-btn:hover { background: #2d2d4e; }
+  .saved-note { font-size: 12px; color: #9ca3af; margin-top: 16px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Welcome to Ali Public School</h1>
+    <p class="subtitle">This is a one-time setup. Your administrator login has been created.</p>
+
+    <div class="field">
+      <label>Email</label>
+      <div class="field-value"><code id="email"></code></div>
+    </div>
+
+    <div class="field">
+      <label>Password</label>
+      <div class="field-value">
+        <code id="password"></code>
+        <button class="copy-btn" id="copy-btn">Copy</button>
+      </div>
+    </div>
+
+    <div class="warning">
+      Save this password now — you can change it after logging in, under
+      your profile settings. This screen will not be shown again.
+    </div>
+
+    <button class="continue-btn" id="continue-btn">Continue to Ali Public School →</button>
+    <p class="saved-note">Also saved to <span id="config-path"></span></p>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search)
+    document.getElementById('email').textContent = params.get('email') || ''
+    document.getElementById('password').textContent = params.get('password') || ''
+    document.getElementById('config-path').textContent = params.get('configPath') || ''
+
+    document.getElementById('copy-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('copy-btn')
+      await navigator.clipboard.writeText(params.get('password') || '')
+      btn.textContent = 'Copied!'
+      btn.classList.add('copied')
+      setTimeout(() => {
+        btn.textContent = 'Copy'
+        btn.classList.remove('copied')
+      }, 1500)
+    })
+
+    document.getElementById('continue-btn').addEventListener('click', () => {
+      window.close()
+    })
+  </script>
+</body>
+</html>

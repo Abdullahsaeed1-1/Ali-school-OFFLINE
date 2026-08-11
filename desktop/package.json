@@ -20,6 +20,7 @@
     },
     "files": [
       "main.js",
+      "first-run.html",
       "package.json"
     ],
     "extraResources": [

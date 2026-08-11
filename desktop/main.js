@@ -7,7 +7,7 @@
 // port so any device on the school's LAN can reach it, not just this
 // machine. The solver runs as a second child process, loopback-only,
 // using the spawn/health-poll/kill mechanism proven in Phase 3.
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, dialog } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
@@ -53,15 +53,18 @@ const SOLVER_PORT = Number(process.env.APS_SOLVER_PORT ?? 8001)
 // ---------------------------------------------------------------------------
 // First-run config: JWT secrets and the seed admin password are generated
 // once and persisted in userData, not regenerated on every launch (that
-// would invalidate every session and account on every restart). A real
-// first-run UI (wizard showing the generated admin password) is future
-// work — for now it's written to config.json and logged to the console on
-// first run only.
+// would invalidate every session and account on every restart). Shown to
+// the school via showFirstRunWindow() below — this function only handles
+// generating/persisting, never displaying.
 // ---------------------------------------------------------------------------
+function getConfigPath() {
+  return path.join(app.getPath('userData'), 'config.json')
+}
+
 function loadOrCreateConfig() {
-  const configPath = path.join(app.getPath('userData'), 'config.json')
+  const configPath = getConfigPath()
   if (fs.existsSync(configPath)) {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    return { config: JSON.parse(fs.readFileSync(configPath, 'utf8')), isNewConfig: false }
   }
   const config = {
     jwtSecret: crypto.randomBytes(48).toString('hex'),
@@ -73,7 +76,44 @@ function loadOrCreateConfig() {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
   console.log(`[first-run] Generated admin login: ${config.seedAdminEmail} / ${config.seedAdminPassword}`)
   console.log(`[first-run] Saved to ${configPath} — change this password after first login.`)
-  return config
+  return { config, isNewConfig: true }
+}
+
+// Shown once, on first run — the school double-clicks the installer, opens
+// the app, and needs to see their generated admin credentials without
+// Abdullah setting anything up by hand or walking them through a terminal.
+// Runs in parallel with ensureDatabase()/startBackendStack() (see main()),
+// not after — first real launch can take a while (Windows Defender
+// scanning the freshly-installed exe/node_modules; observed anywhere from
+// ~20s to over 60s across repeated real-install tests, see Phase 4
+// verification notes in docs/offline-conversion-plan.md), so the
+// credentials screen doubles as the wait indicator instead of the school
+// staring at a blank window.
+let firstRunWindow = null
+
+function showFirstRunWindow(config) {
+  return new Promise((resolve) => {
+    firstRunWindow = new BrowserWindow({
+      width: 480,
+      height: 560,
+      resizable: false,
+      title: 'Ali Public School — First-Time Setup',
+    })
+    firstRunWindow.setMenu(null)
+    firstRunWindow.loadFile(path.join(__dirname, 'first-run.html'), {
+      query: {
+        email: config.seedAdminEmail,
+        password: config.seedAdminPassword,
+        configPath: getConfigPath(),
+      },
+    })
+    // The page's "Continue" button calls window.close() — that's the
+    // signal to proceed, not any IPC round-trip.
+    firstRunWindow.on('closed', () => {
+      firstRunWindow = null
+      resolve()
+    })
+  })
 }
 
 function runChildToCompletion(exePath, args, env, label) {
@@ -93,8 +133,7 @@ function runChildToCompletion(exePath, args, env, label) {
   })
 }
 
-async function ensureDatabase(paths, dbPath, config) {
-  const isFirstRun = !fs.existsSync(dbPath)
+async function ensureDatabase(paths, dbPath, config, isFirstRun) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true })
 
   const dbEnv = {
@@ -137,6 +176,22 @@ async function waitForHttpOk(url, timeoutMs, pollMs = 250) {
   throw new Error(`${url} did not become ready within ${timeoutMs}ms${lastError ? `: ${lastError.message}` : ''}`)
 }
 
+// Synchronous, unlike console.error — a redirected stderr write on Windows
+// can be asynchronous, and was observed being lost when app.quit() follows
+// immediately after (Phase 4 addendum verification, 2026-08-12). A
+// non-technical end user has no console to read anyway; this is the one
+// place they (or Abdullah, remotely) could actually find out what broke.
+function writeCrashLog(error) {
+  try {
+    const logPath = path.join(app.getPath('userData'), 'startup-error.log')
+    fs.mkdirSync(path.dirname(logPath), { recursive: true })
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${error?.stack ?? error}\n`)
+    return logPath
+  } catch {
+    return null
+  }
+}
+
 let backendProcess = null
 let solverProcess = null
 
@@ -154,9 +209,10 @@ async function startBackendStack(paths, dbPath, config) {
   // longer than a warm run to become ready on first launch (Windows
   // Defender real-time-scans it, and PyInstaller onedir's `_internal`
   // folder has hundreds of small files it scans individually). Observed
-  // ~20s+ on first run after a real NSIS install vs. ~2-7s on a machine
-  // that had already run/scanned the same exe before.
-  await waitForHttpOk(`http://127.0.0.1:${SOLVER_PORT}/health`, 60_000)
+  // anywhere from ~20s to over 60s across repeated real-install tests
+  // (2026-08-12), vs. ~2-7s on a machine that had already run/scanned the
+  // same exe before — 120s leaves real margin above the worst case seen.
+  await waitForHttpOk(`http://127.0.0.1:${SOLVER_PORT}/health`, 120_000)
   console.log('[main] Solver ready.')
 
   backendProcess = spawnManaged(
@@ -177,7 +233,7 @@ async function startBackendStack(paths, dbPath, config) {
   // Same generous timeout as the solver above, same reason — a freshly
   // installed node.exe plus Backend's full node_modules tree (hundreds of
   // files) gets AV-scanned on first touch.
-  await waitForHttpOk(`http://127.0.0.1:${BACKEND_PORT}/api/health`, 60_000)
+  await waitForHttpOk(`http://127.0.0.1:${BACKEND_PORT}/api/health`, 120_000)
   console.log('[main] Backend ready.')
 }
 
@@ -192,11 +248,42 @@ function killManagedProcesses() {
 
 async function main() {
   const paths = getPaths()
-  const config = loadOrCreateConfig()
+  const { config, isNewConfig } = loadOrCreateConfig()
   const dbPath = path.join(app.getPath('userData'), 'data', 'app.db')
+  // Single source of truth for "is this a first run" — gates both seeding
+  // (ensureDatabase) and showing the credentials window, so the two can
+  // never disagree (e.g. config.json regenerated but the db already
+  // existed, or vice versa — shouldn't happen in normal operation, but if
+  // it did, this ties the credentials screen to the DB's real state, not
+  // config.json's).
+  const isFirstRun = isNewConfig && !fs.existsSync(dbPath)
 
-  await ensureDatabase(paths, dbPath, config)
-  await startBackendStack(paths, dbPath, config)
+  let firstRunWindowClosed = null
+  if (isFirstRun) {
+    firstRunWindowClosed = showFirstRunWindow(config)
+  }
+
+  try {
+    await Promise.all([
+      ensureDatabase(paths, dbPath, config, isFirstRun).then(() => startBackendStack(paths, dbPath, config)),
+      firstRunWindowClosed,
+    ])
+  } catch (error) {
+    // Startup failed while the school might still be looking at the
+    // credentials screen — close it and tell them plainly instead of
+    // leaving a stray window with no explanation.
+    if (firstRunWindow && !firstRunWindow.isDestroyed()) firstRunWindow.close()
+    console.error('[main] Fatal startup error:', error)
+    const logPath = writeCrashLog(error)
+    dialog.showErrorBox(
+      'Ali Public School — Startup failed',
+      `The app could not start:\n\n${error.message}\n\n` +
+        (logPath ? `Details saved to:\n${logPath}\n\n` : '') +
+        `Please contact support with this message.`,
+    )
+    app.quit()
+    return
+  }
 
   const win = new BrowserWindow({
     width: 1280,
@@ -204,20 +291,20 @@ async function main() {
     title: 'Ali Public School',
   })
   win.loadURL(`http://localhost:${BACKEND_PORT}`)
+  // Quit when THIS window closes — not the generic app-wide
+  // 'window-all-closed' event, which would also fire (and prematurely
+  // quit the whole app) the moment the first-run credentials window
+  // closes via its own "Continue" button, before the main window has
+  // even opened yet.
+  win.on('closed', () => app.quit())
 }
 
 app.whenReady().then(() => {
   main().catch((error) => {
     console.error('[main] Fatal startup error:', error)
+    writeCrashLog(error)
     app.quit()
   })
-})
-
-app.on('window-all-closed', () => {
-  // Windows/Linux convention: quitting the last window quits the app
-  // (unlike macOS) — matches a single-purpose desktop app, not a
-  // multi-window productivity suite.
-  app.quit()
 })
 
 app.on('before-quit', killManagedProcesses)

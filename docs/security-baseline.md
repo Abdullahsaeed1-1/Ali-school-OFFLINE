@@ -19,7 +19,8 @@ This system will eventually hold real personal data (teacher records, eventually
 
 ## 4. Transport & network security
 - HTTPS only in production, for Backend, WebAdmin, and any API the Flutter app calls. No plain HTTP for anything carrying a login or token.
-- CORS on the Backend should allow only known origins (the WebAdmin domain, and whatever's needed for the mobile app's requests) — not a wildcard `*`, especially once auth is involved.
+- **Offline desktop app exception (documented, not an oversight):** this repo's Electron app serves WebAdmin + the API over plain HTTP on the school's local network — there's no TLS cert for a LAN IP, and the traffic never leaves the local network. Auth cookies are `Secure: false` accordingly (`Backend/src/controllers/auth.controller.ts`). This exception applies ONLY to this offline app's LAN traffic — it doesn't relax the HTTPS-only rule for anything hosted on a real domain (the mobile app's backend calls, any future hosted piece, etc.). Full reasoning: `docs/offline-conversion-plan.md` Phase 2.
+- CORS on the Backend should allow only known origins (the WebAdmin domain, and whatever's needed for the mobile app's requests) — not a wildcard `*`, especially once auth is involved. In the packaged offline app, WebAdmin is served same-origin with the API, so this mostly doesn't apply there; it still matters for local dev (`web-admin`'s Vite server on a different port) and any future mobile-web use.
 
 ## 5. Input validation & injection protection
 - Prisma parameterizes queries by default, which already protects against classic SQL injection — but never use `prisma.$queryRawUnsafe` (or string-concatenated raw SQL) with user-supplied input.

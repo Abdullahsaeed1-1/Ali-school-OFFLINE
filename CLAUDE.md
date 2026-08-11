@@ -1,24 +1,34 @@
 # Ali Public School — Management System
 
+## OFFLINE CONVERSION REPO — read this first
+This repo (`Ali-school-OFFLINE`) is a separate copy of the original online
+project (`Abdullahsaeed1-1/Ali-school-main`), converted into a standalone
+offline Windows desktop app — no Supabase, no Vercel, no Railway. The
+original online repo is untouched and has its own accurate docs; don't
+assume anything here applies back to it. Full conversion record (what
+changed, why, live-verification evidence per phase): `docs/offline-conversion-plan.md`.
+
 ## What this project is
 A multi-app system for Ali Public School (3 campuses: Junior, Girls, Boys) that replaces their fragile, error-prone Excel-based timetable with a real database-backed system — plus role-based apps for Admin, Teachers, and (later) Students/Parents.
 
 ## Repo layout (monorepo)
 ```
-ali-school-timetable/
+Ali-school-OFFLINE/
   CLAUDE.md         <- this file (project root, always loaded)
   docs/             <- deep reference material, see below
-  Backend/          Node.js + Express + TypeScript + Prisma + PostgreSQL
-  WebAdmin/         React + Vite — admin panel (web, domain bought later)
-  MobileApp/        Flutter — Teacher app first, Student/Parent later
+  Backend/          Node.js + Express + TypeScript + Prisma + SQLite
+  web-admin/        React + Vite — admin panel, built as static files Backend serves
+  desktop/          Electron — wraps Backend+web-admin+solver into one Windows .exe installer
+  mobile-app/       Flutter — Teacher app first, Student/Parent later (out of scope for this offline conversion, untouched)
 ```
-All apps talk ONLY to `Backend`'s REST API. No app touches the database directly except `Backend`. This is the single source of truth for data and business logic.
+WebAdmin and the Electron desktop shell talk ONLY to `Backend`'s REST API — served from the same origin/port as the API itself (see `docs/offline-conversion-plan.md` Phase 4), not a separately hosted frontend. No app touches the database directly except `Backend`. This is the single source of truth for data and business logic.
 
 ## Tech stack
-- **Backend**: Node.js, Express, TypeScript, Prisma ORM, PostgreSQL
-- **WebAdmin**: React + Vite, Tailwind CSS
-- **MobileApp**: Flutter (Dart) — calls Backend over REST/JSON
-- **Auth**: JWT issued by Backend. A `User` table (`email`, `passwordHash`, `role`) is separate from curriculum-data tables — `role` is an enum: `ADMIN`, `TEACHER`, `STUDENT`, `PARENT`. A `User` with role `TEACHER` links to a `Teacher` row via `teacherId`. Passwords hashed with bcrypt. (`STUDENT`/`PARENT` roles exist in the enum now so the schema doesn't need breaking changes later, but their features are not being built yet.)
+- **Backend**: Node.js, Express, TypeScript, Prisma ORM, **SQLite** (was PostgreSQL/Supabase in the online repo — converted in Phase 1). SQLite has no native enum or JSON column type, so Prisma enums became app-validated `String` columns (`Backend/src/constants/enums.ts` holds the value definitions Prisma used to generate).
+- **WebAdmin**: React + Vite, Tailwind CSS — built with a relative `VITE_API_BASE_URL=/api` (`.env.production`) so the same build works from any device on the LAN, not just the machine hosting it.
+- **desktop/**: Electron main process spawns Backend (via a bundled portable Node executable) and the solver (a PyInstaller-packaged exe) as child processes, waits for both to be healthy, then opens a window pointed at Backend's own served page. Packaged into a Windows NSIS installer via `electron-builder`. Currently unsigned (deliberate, see `docs/deployment.md`).
+- **mobile-app/**: Flutter (Dart) — out of scope for this offline conversion, not touched.
+- **Auth**: JWT issued by Backend. A `User` table (`email`, `passwordHash`, `role`) is separate from curriculum-data tables — `role` is stored as a validated string (was a native Prisma enum before the SQLite conversion): `ADMIN`, `TEACHER`, `STUDENT`, `PARENT`. A `User` with role `TEACHER` links to a `Teacher` row via `teacherId`. Passwords hashed with bcrypt. (`STUDENT`/`PARENT` roles exist now so the schema doesn't need breaking changes later, but their features are not being built yet.) In the packaged desktop app, `JWT_SECRET`/`JWT_REFRESH_SECRET` are generated once on first run and persisted in the OS per-user app-data folder (`desktop/main.js`'s `config.json`), not read from a `.env` file.
 
 ## Phases
 1. **Database + seed correction** (in progress) — schema and seed data are being corrected against the school's real Excel file, class by class. See `docs/excel-ground-truth.md`.
@@ -42,9 +52,9 @@ This system stores real teacher/student personal data, so security is built in f
 - Secrets (`DATABASE_URL`, `JWT_SECRET`, etc.) live only in `.env` files, never committed — confirm `.gitignore` covers this in Backend, WebAdmin, and MobileApp independently.
 - **Never hardcode a secret, API key, or backend URL directly in source as a shortcut** (e.g. "just to get it working" during a fast iteration) — always read it from `.env`/config, even for throwaway test code. Hardcoded values are the single most common way an AI-assisted change quietly ships a credential or a dev-only URL into production; if you (Claude) catch yourself about to hardcode one, stop and use the existing env/config pattern instead.
 - Every API endpoint checks the JWT's role **server-side** before acting. Hiding a button in the UI is not access control — the API must refuse the request on its own, regardless of which app called it.
-- All production traffic over HTTPS only, no exceptions.
+- HTTPS only, no exceptions — **except** this offline app's LAN traffic, a deliberate, documented exception (no TLS cert for a LAN IP; see `docs/security-baseline.md` §4). Don't treat that exception as license to skip HTTPS anywhere else, including if/when the mobile app or a future hosted piece talks to a real domain.
 - Login/auth endpoints are rate-limited — stop brute-force password guessing before it's a problem, not after.
-- Database has automated backups turned on once real school data is in it (most managed Postgres hosts offer this — confirm it's actually enabled, don't assume).
+- No managed-host backups here — SQLite is a single local file on whichever machine runs the app. The school is responsible for backing up their own data folder (OS per-user app-data path, see `docs/offline-conversion-plan.md` Phase 4); this isn't automated by anything in this repo yet.
 
 **Before this system goes live for real (not just dev/testing), `docs/security-baseline.md` §11–14 must ALL be checked** — rate limiting, input validation, dependency vulnerabilities, error handling/information leakage, and file upload safety. This isn't done yet; treat it as a hard pre-launch gate, not optional polish.
 
@@ -65,8 +75,9 @@ See `docs/security-baseline.md` §8 for the full mobile production checklist.
 - Keep this file short. If it starts exceeding ~150–200 lines, move detail into `docs/` and leave a pointer here instead.
 
 ## Where to look for more detail
+- `docs/offline-conversion-plan.md` — the full record of this repo's conversion from the online (Supabase/Vercel/Railway) deployment to this offline desktop app: database migration, auth simplification, solver packaging, Electron packaging — what changed, why, and the live-verification evidence for each phase. Start here for anything about how this repo actually runs.
 - `docs/security-baseline.md` — full security checklist (auth, secrets, RBAC, transport, input validation, mobile token storage, etc.)
-- `docs/deployment.md` — hosting decisions made so far (Supabase region, WebAdmin host) and open ones (Backend/solver host) — includes a real latency finding that constrains the Backend hosting choice, don't pick a region without checking it first
+- `docs/deployment.md` — short pointer to how this repo builds/distributes (Electron/NSIS installer) and the code-signing decision; full detail lives in `docs/offline-conversion-plan.md`
 - `docs/excel-ground-truth.md` — which classes/campuses are confirmed-real vs broken/empty in the source Excel, exact period timings, periods-per-week per subject
 - `docs/verification_needed.json` — exact list of things that need a real answer from the school before they can be safely coded
 - `docs/girls_full_grid.json` / `docs/boys_classsubject.json` — extracted real schedule/curriculum data
