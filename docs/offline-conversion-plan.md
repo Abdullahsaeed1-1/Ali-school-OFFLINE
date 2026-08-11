@@ -345,7 +345,122 @@ separately from `requirements.txt`'s runtime deps.
 
 ## Phase 4 — Electron packaging
 
-**Status: not started.**
+**Status: done (2026-08-11).** Built, installed via the real NSIS
+installer, and fully verified — including two real startup-timeout bugs
+that only surfaced from the actual installed app, not the dev-mode build.
+
+1. **WebAdmin build made same-origin-safe.** `web-admin/.env.production`
+   (new — only affects `vite build`, never `vite dev`) sets
+   `VITE_API_BASE_URL=/api`, relative instead of the dev `.env`'s absolute
+   `http://localhost:3000/api`. This mattered specifically because of the
+   LAN-access decision: a laptop loading the page from the host machine's
+   IP but with an absolute `localhost:3000` baked into the JS bundle would
+   send every API call to *its own* localhost, not the server's — silently
+   breaking LAN access for every device except the host itself. Confirmed
+   the built bundle contains `/api`, not `localhost:3000`.
+2. **`Backend/src/index.ts`** now serves WebAdmin's built static files +
+   SPA fallback when `WEBADMIN_DIST_PATH` is set (Electron sets it; plain
+   `npm run dev` never does, so local dev against the Vite server is
+   unaffected). Express 5 dropped bare `*` wildcard routes, so the SPA
+   fallback is a plain middleware check, not a route pattern. Backend was
+   already binding to `0.0.0.0` (from the original Railway-specific
+   commit) — turns out to be exactly what LAN access needs too, no change
+   required there.
+3. **`desktop/` — the Electron app.** `main.js`: resolves dev vs. packaged
+   paths, generates and persists JWT secrets + a random admin password in
+   `userData/config.json` on first run (never regenerated — that would
+   invalidate every session/account on every restart), runs `prisma
+   migrate deploy` + seed scripts against `userData/data/app.db` on first
+   run only, spawns the solver (Phase 3's onedir exe) and Backend (a real
+   bundled Node executable running `Backend/dist/index.js` directly — not
+   required in-process into Electron's own bundled Node/V8, avoiding the
+   ABI mismatch risk with Prisma's native query engine flagged when this
+   plan was first written), waits for both `/health` endpoints, then opens
+   a `BrowserWindow` at `http://localhost:<port>`. `before-quit` kills both
+   child processes.
+4. **Bundled a real portable Node runtime** (`desktop/node-runtime/`,
+   fetched by `desktop/scripts/fetch-node-runtime.mjs`, gitignored — 85MB
+   binary, not committed) rather than leaving that as an unfulfilled
+   assumption. Backend spawns through this exact binary in both dev and
+   packaged mode, so the dev-mode test genuinely exercises the same
+   artifact that ships.
+5. `desktop/package.json`'s `electron-builder` config bundles Backend's
+   `dist` + `node_modules` + `prisma`, the solver's onedir folder, WebAdmin's
+   `dist`, and the portable Node runtime as `extraResources`, targeting a
+   Windows NSIS installer.
+
+### Live verification (2026-08-11)
+
+**Dev-mode (unpackaged, `electron .`):**
+- First-run flow executed for real from a genuinely empty `userData`:
+  config generated, migration applied, seed + seed-admin ran, solver
+  spawned and passed its health check, Backend spawned and passed its
+  health check, a real `BrowserWindow` opened (confirmed via OS process
+  enumeration — title "web-admin", matching the built page).
+- Logged in through the spawned backend with the auto-generated admin
+  password from `config.json`. Hit the server via its actual LAN IP
+  (`192.168.10.100`, not loopback) — root page, login, and `/api/campuses`
+  all returned correctly, proving the "different laptop on the same
+  network" scenario this phase's architecture decision exists for.
+- Ran a full `Generate Timetable` through the complete stack (Electron →
+  spawned Backend → spawned solver) — `280/0/OPTIMAL/0 conflicts` for
+  Junior, matching every prior phase's result for the same campus.
+- **Quit teardown** (the specific risk flagged for this phase): snapshotted
+  the backend and solver PIDs and their listening ports, closed the main
+  window (`CloseMainWindow()` — a real WM_CLOSE, not a forced kill,
+  simulating an actual user closing the app), confirmed via the process's
+  own log that `before-quit` fired and called `kill()` on both children by
+  the exact PIDs snapshotted, then confirmed both ports released and both
+  PIDs gone from the process list. No orphans.
+
+**Real installer (`electron-builder --win` → NSIS `.exe`, then actually
+installed and run — not just "the build succeeded"):**
+- Built a 275MB `Ali Public School Setup 1.0.0.exe`. Ran it silently
+  (`/S`), confirmed it installed to
+  `%LOCALAPPDATA%\Programs\ali-school-desktop` with all `extraResources`
+  correctly laid out (`backend/`, `solver/`, `node-runtime/`, `webadmin`
+  alongside `app.asar`).
+- **First launch of the installed app failed** — the solver, then on the
+  next attempt the backend, each failed their 15-second readiness check
+  with a connection failure, even though both eventually did come up
+  (confirmed by running the solver executable directly and watching it
+  succeed, just slowly). Diagnosis: a freshly-installed, unsigned
+  executable gets scanned by Windows Defender on first touch, and
+  PyInstaller's onedir output plus Backend's full `node_modules` tree are
+  hundreds of small files scanned individually — real first-run latency
+  that the dev-mode testing above never hit (those files had already been
+  touched/scanned repeatedly during development). This is a genuine
+  deployment consideration, not a test artifact: any end user's first
+  launch after installing will see this same delay. **Fixed** by raising
+  both readiness timeouts from 15s to 60s in `main.js` — not a magic
+  number, generous headroom over the ~20s actually observed.
+- Rebuilt, reinstalled, relaunched: first-run flow completed end-to-end
+  (migration — "no pending migrations," correctly detecting the schema was
+  already current from the earlier failed attempt — solver ready, backend
+  ready). Re-ran the full verification pass (root page, login with the
+  *same* persisted credentials from the first attempt — confirming
+  `config.json` survives reinstalls since it lives in `userData`, separate
+  from the install directory — LAN access, full Generate Timetable) against
+  the actual installed binaries this time, not dev-tree paths. All passed.
+  Repeated the quit-teardown check against the installed app specifically
+  — same result, both ports released, zero lingering processes.
+- Cleaned up: ran the generated uninstaller silently, removed the leftover
+  empty install directory it left behind, cleared the test `userData`.
+  Confirmed via process enumeration afterward: nothing left running.
+
+**What's NOT yet done** (explicitly out of scope for this pass, flagged
+rather than silently skipped):
+- Code signing — every `signtool.exe` step during the build logged "no
+  signing info identified, signing is skipped." An unsigned installer will
+  trigger a Windows SmartScreen warning on other machines; buying and
+  wiring in a code-signing certificate is a real cost/process decision for
+  Abdullah, not something to default into.
+- A custom app icon (currently Electron's default) and installer branding
+  — cosmetic, deferred.
+- A first-run UI showing the generated admin password (currently only
+  logged to the console / written to `config.json`) — a real gap for a
+  non-technical end user installing this for the first time with no
+  terminal access. Follow-up work, not done here.
 
 1. New `desktop/` folder holding the Electron main process.
 2. **Backend runs as a spawned child process using a real Node executable,

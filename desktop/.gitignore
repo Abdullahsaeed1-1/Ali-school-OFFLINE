@@ -1,0 +1,7 @@
+node_modules
+release
+
+# Portable Node runtime — ~85MB binary, fetched by scripts/fetch-node-runtime,
+# not committed. See that script for the exact version/source.
+node-runtime/*.exe
+node-runtime/*.txt

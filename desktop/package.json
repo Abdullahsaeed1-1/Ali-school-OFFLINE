@@ -1,0 +1,38 @@
+{
+  "name": "ali-school-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ali Public School Management System — offline desktop app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.alipublicschool.desktop",
+    "productName": "Ali Public School",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../Backend/dist", "to": "backend/dist" },
+      { "from": "../Backend/node_modules", "to": "backend/node_modules" },
+      { "from": "../Backend/package.json", "to": "backend/package.json" },
+      { "from": "../Backend/prisma", "to": "backend/prisma", "filter": ["**/*", "!*.db", "!*.db-journal"] },
+      { "from": "../Backend/solver/dist/aps-solver", "to": "solver" },
+      { "from": "../web-admin/dist", "to": "webadmin" },
+      { "from": "node-runtime", "to": "node-runtime" }
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

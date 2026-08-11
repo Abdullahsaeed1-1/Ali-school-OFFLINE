@@ -1,4 +1,6 @@
 import 'dotenv/config'
+import path from 'node:path'
+import fs from 'node:fs'
 import express from 'express'
 import type { NextFunction, Request, Response } from 'express'
 import cors from 'cors'
@@ -61,6 +63,30 @@ app.use('/api/subjects', subjectsRoutes)
 app.use('/api/teachers', teachersRoutes)
 app.use('/api/timetable', timetableRoutes)
 app.use('/api/warnings', warningsRoutes)
+
+// Offline desktop app (docs/offline-conversion-plan.md Phase 4): serves
+// WebAdmin's built static files from this same Express app/port instead of
+// a separate Vercel deployment, so the API and frontend are same-origin —
+// both to the Electron window on the host machine AND to any other device
+// on the school's LAN that opens a browser to this machine's IP. Only
+// active when WEBADMIN_DIST_PATH is set (Electron's main process sets it;
+// plain `npm run dev` against the Vite dev server on 5173 never does, so
+// local dev is unaffected).
+const webAdminDistPath = process.env.WEBADMIN_DIST_PATH
+if (webAdminDistPath && fs.existsSync(webAdminDistPath)) {
+  app.use(express.static(webAdminDistPath))
+  // SPA fallback — anything that isn't an API route or a real static file
+  // (client-side routes like /teachers, /classes/:id) gets index.html so
+  // React Router can take over. Express 5 dropped bare `*` wildcard route
+  // patterns (path-to-regexp v8), so this is a plain middleware check
+  // rather than a route pattern.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api')) return next()
+    res.sendFile(path.join(webAdminDistPath, 'index.html'))
+  })
+} else if (webAdminDistPath) {
+  console.warn(`[WARN] WEBADMIN_DIST_PATH=${webAdminDistPath} does not exist — not serving WebAdmin static files.`)
+}
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Route not found', code: 'ROUTE_NOT_FOUND' })
