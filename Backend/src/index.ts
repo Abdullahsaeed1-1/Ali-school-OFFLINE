@@ -30,20 +30,35 @@ if (allowedOrigins.length === 0) {
   )
 }
 
-app.use(
+// Wrapped in a per-request middleware (rather than a single static `cors()`
+// call) so the origin check can see `req` — needed for the same-origin
+// exception below. Found live (2026-08-12, offline desktop app): Vite
+// tags its built `<script type="module">`/`<link>` tags with a
+// `crossorigin` attribute, which makes Chromium send a real `Origin`
+// header even for a same-origin request. That's fine for the online
+// deployment (WEBADMIN_ORIGIN is always set there), but the offline
+// Electron app serves WebAdmin from itself — the Origin header ends up
+// being the page's own address (`http://localhost:PORT`, or
+// `http://<LAN-IP>:PORT` for another device on the school's network),
+// which was never in `allowedOrigins` and got rejected with a 403,
+// breaking every asset load. A request whose Origin matches its own Host
+// is by definition same-origin and must never be blocked, regardless of
+// which specific host/port/IP this instance happens to be reached at.
+app.use((req, res, next) => {
+  const requestOrigin = `${req.protocol}://${req.headers.host}`
   cors({
     origin: (origin, callback) => {
       // Requests with no Origin header (native mobile HTTP clients, curl, Postman)
       // aren't subject to browser CORS in the first place — let them through.
       if (!origin) return callback(null, true)
-      if (allowedOrigins.includes(origin)) {
+      if (origin === requestOrigin || allowedOrigins.includes(origin)) {
         return callback(null, true)
       }
       return callback(new Error(`CORS: origin ${origin} not allowed`))
     },
     credentials: true, // Required for cookies to work cross-origin
-  }),
-)
+  })(req, res, next)
+})
 
 // Parse httpOnly cookies from incoming requests (needed by authMiddleware and auth controllers).
 app.use(cookieParser())

@@ -612,6 +612,91 @@ clean afterward.
 5. `mobile-app/` — confirmed still untouched, out of scope, exactly as
    planned. No action needed.
 
+## Post-Phase-5 — real-world first-install testing (2026-08-12)
+
+Abdullah ran the actual installer on his own machine for the first time
+(not me testing it) and hit three genuine bugs none of the prior
+verification passes caught — all fixed and re-verified against a real
+install. Recorded in detail because each is a real category of bug, not
+a one-off:
+
+1. **Blank white window on launch.** Root cause turned out to be a stray
+   port collision — Abdullah's machine had long-running leftover dev
+   processes from *other, unrelated* projects (the original online
+   repo's solver, and a separate "Thinkova" project's Next.js dev
+   server) already bound to this app's default ports (8001, 3000). Not
+   a code bug — killed the stray processes and it resolved. Real
+   takeaway: **on Abdullah's dev machine specifically**, this app's
+   fixed default ports (`APS_BACKEND_PORT`/`APS_SOLVER_PORT`, defaulting
+   to 3000/8001) can collide with whatever else he's got running: never
+   assumed the ports are free on a real school PC (they will be, no dev
+   tooling there), but worth remembering if testing on a dev machine
+   again.
+2. **Blank white window again, different cause: a real CORS bug.**
+   Once ports were clear, the window still rendered blank — DevTools
+   (`Ctrl+Shift+I` → Console) showed both the JS bundle and CSS failing
+   with `403 Forbidden`. Root cause: Vite tags built `<script
+   type="module" crossorigin>`/`<link crossorigin>` tags, which makes
+   Chromium send a real `Origin` header even for a same-origin request.
+   Backend's CORS middleware only allowed origins from
+   `WEBADMIN_ORIGIN`/`FLUTTER_WEB_ORIGIN` — never set for the packaged
+   app — so the browser's own same-origin request got rejected by the
+   app's own CORS check. **This is exactly the kind of bug curl-based
+   verification structurally cannot catch**: curl doesn't send an
+   `Origin` header for a plain GET, so every earlier "hit the server
+   with curl, check the status code" verification pass (Phases 1-4)
+   missed it completely — it only surfaces in a real browser engine.
+   Reproduced directly with `curl -H "Origin: ..."` to confirm before
+   fixing. Fix: `Backend/src/index.ts`'s CORS origin check now also
+   allows any request whose `Origin` matches its own `Host` header —
+   genuine same-origin by definition, regardless of which specific
+   host/port/LAN-IP this instance happens to be reached at (verified:
+   `localhost` self-origin allowed, a LAN IP's own self-origin allowed,
+   a genuinely foreign origin still correctly rejected with 403).
+3. **Login failed with "Invalid email or password" using the exact
+   password shown on the credentials screen.** Direct DB query showed
+   **zero User rows** — the admin account had never actually been
+   created, despite `config.json` recording a password for it. Root
+   cause: the *very first* launch (during the port-collision chaos above)
+   got interrupted mid-seed, but `main.js`'s old logic decided whether to
+   seed based on `config.json`'s existence — which had already been
+   written (eagerly, before seeding even starts) — so every subsequent
+   launch saw "config already exists" and never retried, permanently
+   stuck with an unseeded database and no way to recover short of
+   deleting `userData` by hand. **Fixed properly, not just patched for
+   this one machine**: added `Backend/prisma/check-seeded.ts` (checks
+   real `Class` count) and restructured `main.js` to decide whether to
+   seed from the database's actual content, not from config-file
+   existence — resilient to an interruption at any point, on any
+   machine, for any reason (crash, antivirus killing a process, power
+   loss). Reuses the already-generated `config.json` credentials rather
+   than regenerating new ones, so a recovered launch shows the school the
+   *same* password they may have already seen.
+4. **Found while fixing #3, unrelated to it: a silent-crash bug.** After
+   the fix above, dev-mode re-testing hit the app quitting with **zero
+   error output** right after a successful seed — no crash log, no
+   console error, just gone. Root causes, two of them: `spawnManaged()`
+   had no `child.on('error', ...)` listener (an unhandled `'error'` event
+   on an EventEmitter throws and crashes the process); and neither
+   `loadFile()` nor `loadURL()`'s returned Promises were ever caught (an
+   unhandled rejection crashes the process by default since Node 15).
+   Both fixed — spawn errors and load failures now log instead of
+   silently killing the app. Also added `process.on('uncaughtException'
+   / 'unhandledRejection', ...)` as a last-resort safety net, and
+   `writeCrashLog()` (synchronous `userData/startup-error.log`, already
+   added earlier this phase) means any *future* startup failure is
+   diagnosable without a dev console, which a school never has.
+
+**Final re-verification, real installer, after all four fixes**: fresh
+install → first-run window loaded and stayed open (confirmed via
+`did-finish-load`, not just "a window exists") → logged in with the
+exact on-screen password (`200`) → closed the window → main window
+opened correctly → asset load with a real browser-style `Origin` header
+now `200` (the actual CORS bug, confirmed fixed, not just the health
+endpoint) → LAN access (`200`) → full Generate Timetable (`200`) → clean
+quit, both ports released, zero lingering processes. Uninstalled,
+cleaned up test `userData`, confirmed machine fully clean afterward.
+
 ## Open items carried forward (not blocking, revisit later)
 
 - LAN traffic is unencrypted HTTP by design (Phase 2, item 2) — accepted

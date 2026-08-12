@@ -15,6 +15,18 @@ const { spawn } = require('node:child_process')
 
 const isPackaged = app.isPackaged
 
+// Diagnostic (2026-08-12): a real-world run quit silently right after
+// seeding, with no "[main] Fatal startup error" line and no crash log —
+// meaning something crashed OUTSIDE the try/catch in main(), most likely
+// an uncaught exception/rejection somewhere async. These make that
+// visible instead of a silent, unexplained app.quit().
+process.on('uncaughtException', (err) => {
+  console.error('[main] uncaughtException:', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandledRejection:', reason)
+})
+
 function devPath(...segments) {
   return path.join(__dirname, '..', ...segments)
 }
@@ -39,6 +51,9 @@ function getPaths() {
     seedAdminScript: isPackaged
       ? packagedPath('backend', 'prisma', 'seed-admin.ts')
       : devPath('Backend', 'prisma', 'seed-admin.ts'),
+    checkSeededScript: isPackaged
+      ? packagedPath('backend', 'prisma', 'check-seeded.ts')
+      : devPath('Backend', 'prisma', 'check-seeded.ts'),
     tsxCli: isPackaged
       ? packagedPath('backend', 'node_modules', 'tsx', 'dist', 'cli.mjs')
       : devPath('Backend', 'node_modules', 'tsx', 'dist', 'cli.mjs'),
@@ -64,7 +79,7 @@ function getConfigPath() {
 function loadOrCreateConfig() {
   const configPath = getConfigPath()
   if (fs.existsSync(configPath)) {
-    return { config: JSON.parse(fs.readFileSync(configPath, 'utf8')), isNewConfig: false }
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'))
   }
   const config = {
     jwtSecret: crypto.randomBytes(48).toString('hex'),
@@ -76,13 +91,13 @@ function loadOrCreateConfig() {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
   console.log(`[first-run] Generated admin login: ${config.seedAdminEmail} / ${config.seedAdminPassword}`)
   console.log(`[first-run] Saved to ${configPath} — change this password after first login.`)
-  return { config, isNewConfig: true }
+  return config
 }
 
 // Shown once, on first run — the school double-clicks the installer, opens
 // the app, and needs to see their generated admin credentials without
 // Abdullah setting anything up by hand or walking them through a terminal.
-// Runs in parallel with ensureDatabase()/startBackendStack() (see main()),
+// Runs in parallel with seedDatabase()/startBackendStack() (see main()),
 // not after — first real launch can take a while (Windows Defender
 // scanning the freshly-installed exe/node_modules; observed anywhere from
 // ~20s to over 60s across repeated real-install tests, see Phase 4
@@ -100,47 +115,78 @@ function showFirstRunWindow(config) {
       title: 'Ali Public School — First-Time Setup',
     })
     firstRunWindow.setMenu(null)
-    firstRunWindow.loadFile(path.join(__dirname, 'first-run.html'), {
-      query: {
-        email: config.seedAdminEmail,
-        password: config.seedAdminPassword,
-        configPath: getConfigPath(),
-      },
-    })
+    // loadFile() returns a Promise that rejects on failure — Electron's
+    // main process runs on Node, where an unhandled rejection crashes the
+    // whole process by default (since Node 15). Never leave this
+    // uncaught, or any transient load failure takes the entire app down
+    // silently with no error message at all.
+    firstRunWindow
+      .loadFile(path.join(__dirname, 'first-run.html'), {
+        query: {
+          email: config.seedAdminEmail,
+          password: config.seedAdminPassword,
+          configPath: getConfigPath(),
+        },
+      })
+      .catch((err) => console.error('[main] first-run window failed to load:', err))
+    firstRunWindow.webContents.on('did-finish-load', () => console.log('[main] first-run window loaded successfully.'))
+    firstRunWindow.webContents.on('render-process-gone', (_e, details) =>
+      console.error('[main] first-run window renderer crashed:', details),
+    )
     // The page's "Continue" button calls window.close() — that's the
     // signal to proceed, not any IPC round-trip.
     firstRunWindow.on('closed', () => {
+      console.log('[main] first-run window closed.')
       firstRunWindow = null
       resolve()
     })
   })
 }
 
-function runChildToCompletion(exePath, args, env, label) {
+function runChildToCompletion(exePath, args, env, label, { captureStdout = false } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(exePath, args, { env, stdio: 'pipe' })
+    let stdout = ''
     let stderr = ''
-    child.stdout.on('data', (d) => process.stdout.write(`[${label}] ${d}`))
+    child.stdout.on('data', (d) => {
+      if (captureStdout) stdout += d.toString()
+      process.stdout.write(`[${label}] ${d}`)
+    })
     child.stderr.on('data', (d) => {
       stderr += d.toString()
       process.stderr.write(`[${label}] ${d}`)
     })
     child.on('exit', (code) => {
-      if (code === 0) resolve()
+      if (code === 0) resolve(stdout)
       else reject(new Error(`${label} exited with code ${code}: ${stderr}`))
     })
     child.on('error', reject)
   })
 }
 
-async function ensureDatabase(paths, dbPath, config, isFirstRun) {
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true })
+// Whether to seed is decided from the database's REAL content (does any
+// Class exist), not from whether config.json already exists. Found live
+// (2026-08-12): a first launch that gets interrupted mid-seed — e.g. by an
+// unrelated port conflict on this dev machine, but a crash or an
+// antivirus-killed process would do the same on a real school PC — left
+// config.json's password recorded with NO matching User row ever created,
+// and every later launch saw config.json already existing and never
+// retried. This check is what actually happened, so it can't desync the
+// same way — whatever launch first finds an empty database completes the
+// seeding, reusing config.json's already-generated (and possibly
+// already-shown) credentials rather than generating new ones.
+async function checkNeedsSeed(paths, dbEnv) {
+  const output = await runChildToCompletion(
+    paths.nodeExe,
+    [paths.tsxCli, paths.checkSeededScript],
+    dbEnv,
+    'check-seeded',
+    { captureStdout: true },
+  )
+  return output.includes('EMPTY')
+}
 
-  const dbEnv = {
-    ...process.env,
-    DATABASE_URL: `file:${dbPath}`,
-  }
-
+async function runMigrations(paths, dbEnv, dbPath) {
   console.log(`[db] Running migrations against ${dbPath}...`)
   await runChildToCompletion(
     paths.nodeExe,
@@ -148,17 +194,17 @@ async function ensureDatabase(paths, dbPath, config, isFirstRun) {
     dbEnv,
     'prisma',
   )
+}
 
-  if (isFirstRun) {
-    console.log('[db] First run — seeding real school data and admin account...')
-    await runChildToCompletion(paths.nodeExe, [paths.tsxCli, paths.seedScript], dbEnv, 'seed')
-    await runChildToCompletion(
-      paths.nodeExe,
-      [paths.tsxCli, paths.seedAdminScript],
-      { ...dbEnv, SEED_ADMIN_EMAIL: config.seedAdminEmail, SEED_ADMIN_PASSWORD: config.seedAdminPassword },
-      'seed-admin',
-    )
-  }
+async function seedDatabase(paths, dbEnv, config) {
+  console.log('[db] Database has no real school data yet — seeding now...')
+  await runChildToCompletion(paths.nodeExe, [paths.tsxCli, paths.seedScript], dbEnv, 'seed')
+  await runChildToCompletion(
+    paths.nodeExe,
+    [paths.tsxCli, paths.seedAdminScript],
+    { ...dbEnv, SEED_ADMIN_EMAIL: config.seedAdminEmail, SEED_ADMIN_PASSWORD: config.seedAdminPassword },
+    'seed-admin',
+  )
 }
 
 async function waitForHttpOk(url, timeoutMs, pollMs = 250) {
@@ -200,6 +246,10 @@ function spawnManaged(exePath, args, env, label) {
   child.stdout.on('data', (d) => process.stdout.write(`[${label}] ${d}`))
   child.stderr.on('data', (d) => process.stderr.write(`[${label}] ${d}`))
   child.on('exit', (code, signal) => console.log(`[${label}] exited (code=${code}, signal=${signal})`))
+  // Without this, a spawn-level failure (bad path, EACCES, etc.) fires an
+  // 'error' event with no listener, which Node treats as an uncaught
+  // exception and crashes the whole main process immediately.
+  child.on('error', (err) => console.error(`[${label}] spawn error:`, err))
   return child
 }
 
@@ -248,24 +298,34 @@ function killManagedProcesses() {
 
 async function main() {
   const paths = getPaths()
-  const { config, isNewConfig } = loadOrCreateConfig()
+  const config = loadOrCreateConfig()
   const dbPath = path.join(app.getPath('userData'), 'data', 'app.db')
-  // Single source of truth for "is this a first run" — gates both seeding
-  // (ensureDatabase) and showing the credentials window, so the two can
-  // never disagree (e.g. config.json regenerated but the db already
-  // existed, or vice versa — shouldn't happen in normal operation, but if
-  // it did, this ties the credentials screen to the DB's real state, not
-  // config.json's).
-  const isFirstRun = isNewConfig && !fs.existsSync(dbPath)
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true })
+  const dbEnv = { ...process.env, DATABASE_URL: `file:${dbPath}` }
 
+  // Migration + the seeded-content check run first and are awaited (fast,
+  // a couple seconds at most) — whether to seed, and whether to show the
+  // credentials window at all, both depend on knowing the database's real
+  // state, not a guess made before checking it.
+  await runMigrations(paths, dbEnv, dbPath)
+  const needsSeed = await checkNeedsSeed(paths, dbEnv)
+
+  // Credentials window shown in parallel with seeding + backend/solver
+  // startup (not after) — first real launch can take a while (Windows
+  // Defender scanning the freshly-installed exe/node_modules; observed
+  // anywhere from ~20s to over 60s across repeated real-install tests),
+  // so the credentials screen doubles as the wait indicator instead of
+  // the school staring at a blank window.
   let firstRunWindowClosed = null
-  if (isFirstRun) {
+  if (needsSeed) {
     firstRunWindowClosed = showFirstRunWindow(config)
   }
 
   try {
     await Promise.all([
-      ensureDatabase(paths, dbPath, config, isFirstRun).then(() => startBackendStack(paths, dbPath, config)),
+      (needsSeed ? seedDatabase(paths, dbEnv, config) : Promise.resolve()).then(() =>
+        startBackendStack(paths, dbPath, config),
+      ),
       firstRunWindowClosed,
     ])
   } catch (error) {
@@ -290,13 +350,18 @@ async function main() {
     height: 800,
     title: 'Ali Public School',
   })
-  win.loadURL(`http://localhost:${BACKEND_PORT}`)
+  win.loadURL(`http://localhost:${BACKEND_PORT}`).catch((err) => console.error('[main] main window failed to load:', err))
+  win.webContents.on('did-finish-load', () => console.log('[main] main window loaded successfully.'))
+  win.webContents.on('render-process-gone', (_e, details) => console.error('[main] main window renderer crashed:', details))
   // Quit when THIS window closes — not the generic app-wide
   // 'window-all-closed' event, which would also fire (and prematurely
   // quit the whole app) the moment the first-run credentials window
   // closes via its own "Continue" button, before the main window has
   // even opened yet.
-  win.on('closed', () => app.quit())
+  win.on('closed', () => {
+    console.log('[main] main window closed — quitting.')
+    app.quit()
+  })
 }
 
 app.whenReady().then(() => {
