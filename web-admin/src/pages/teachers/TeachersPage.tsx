@@ -139,6 +139,10 @@ export default function TeachersPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [pairSubjectId, setPairSubjectId] = useState('')
   const [pairClassId, setPairClassId] = useState('')
+  // Bulk shortcut for Junior's homeroom model (one teacher covers every
+  // subject for their one section) — independent of the single pair-adder
+  // above so it isn't gated behind picking a subject first.
+  const [bulkClassId, setBulkClassId] = useState('')
   // Reallocation-risk preview (§22 follow-up) — shown before adding a pair
   // to a teacher already at/over target, since the solver has no spare
   // capacity to draw from and would have to take periods away from one of
@@ -419,6 +423,37 @@ export default function TeachersPage() {
     setPairClassId('')
   }
 
+  // Adds one eligibility pair per subject the picked class actually
+  // requires, in one click — for a homeroom-style teacher (typically
+  // Junior campus, §6b) who covers every subject for their one section,
+  // instead of an admin adding each subject one at a time. Skips
+  // subjects already present, so it's safe to click again after manually
+  // adding/removing individual pairs. Unlike the single-pair add above,
+  // this doesn't run the reallocation-risk check per subject — that
+  // check exists for moving load away from an already-loaded teacher,
+  // which doesn't apply to setting up a homeroom teacher's own baseline.
+  const addAllSubjectsForClass = () => {
+    const cls = classes.find((c) => c.id === bulkClassId)
+    if (!cls) return
+    setForm((current) => {
+      const existingKeys = new Set(current.eligibilities.map((e) => `${e.subjectId}:${e.classId}`))
+      const additions = cls.subjectIds
+        .filter((subjectId) => !existingKeys.has(`${subjectId}:${cls.id}`))
+        .map((subjectId) => ({ subjectId, classId: cls.id }))
+      if (additions.length === 0) {
+        pushToast({ kind: 'success', title: 'Nothing to add', description: `${cls.name}'s subjects are already all in their eligibility list.` })
+        return current
+      }
+      pushToast({
+        kind: 'success',
+        title: 'Subjects added',
+        description: `Added ${additions.length} subject${additions.length === 1 ? '' : 's'} for ${cls.name}.`,
+      })
+      return { ...current, eligibilities: [...current.eligibilities, ...additions] }
+    })
+    setBulkClassId('')
+  }
+
   const addEligibilityPair = async () => {
     if (!pairSubjectId || !pairClassId) return
     const exists = form.eligibilities.some((e) => e.subjectId === pairSubjectId && e.classId === pairClassId)
@@ -687,7 +722,14 @@ export default function TeachersPage() {
     },
   ]
 
-  const selectedCampusClasses = classes
+  // Already campus-scoped (fetched per form.campusId above). Further
+  // filtered to classes that actually require the picked subject — lets
+  // an admin only choose real curricular combinations (a class's own
+  // ClassSubject list), instead of e.g. assigning "Chemistry" to a KG
+  // class where it was never a requirement to begin with.
+  const selectedCampusClasses = pairSubjectId
+    ? classes.filter((cls) => cls.subjectIds.includes(pairSubjectId))
+    : classes
   // Teacher Lock (§20) freezes the whole record — every field in the edit
   // form, plus adding/removing eligibility pairs, is disabled while locked.
   const locked = Boolean(editingId && selectedTeacher?.isLocked)
@@ -947,15 +989,34 @@ export default function TeachersPage() {
               </p>
               <p className="mb-2 text-xs text-text-muted">
                 Add one pair at a time — this teacher will only ever be assignable to exactly these
-                subject/class combinations, not every subject in every class listed below.
+                subject/class combinations. The class list only shows classes that actually require
+                the subject picked below.
               </p>
               <div className="mb-3 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-                <SelectInput disabled={locked} value={pairSubjectId} onChange={(e) => setPairSubjectId(e.target.value)}>
+                <SelectInput
+                  disabled={locked}
+                  value={pairSubjectId}
+                  onChange={(e) => {
+                    setPairSubjectId(e.target.value)
+                    // The previously-picked class may no longer require the
+                    // newly-picked subject — clear it rather than leave a
+                    // stale selection that's no longer in the filtered list.
+                    setPairClassId('')
+                  }}
+                >
                   <option value="">Select subject</option>
                   {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
                 </SelectInput>
-                <SelectInput value={pairClassId} onChange={(e) => setPairClassId(e.target.value)} disabled={locked || !form.campusId}>
-                  <option value="">{form.campusId ? 'Select class' : 'Select a campus first'}</option>
+                <SelectInput value={pairClassId} onChange={(e) => setPairClassId(e.target.value)} disabled={locked || !form.campusId || !pairSubjectId}>
+                  <option value="">
+                    {!form.campusId
+                      ? 'Select a campus first'
+                      : !pairSubjectId
+                        ? 'Select a subject first'
+                        : selectedCampusClasses.length === 0
+                          ? 'No classes in this campus need this subject'
+                          : 'Select class'}
+                  </option>
                   {selectedCampusClasses.map((cls) => <option key={cls.id} value={cls.id}>{cls.name}</option>)}
                 </SelectInput>
                 <Button
@@ -966,6 +1027,18 @@ export default function TeachersPage() {
                   onClick={addEligibilityPair}
                 >
                   <Plus className="h-4 w-4" /> Add
+                </Button>
+              </div>
+              {/* Homeroom shortcut (Junior campus, §6b) — one teacher covers
+                  every subject for their one section, so adding each subject
+                  one at a time is tedious for this specific, common case. */}
+              <div className="mb-3 flex items-center gap-2 rounded-xl border border-dashed border-[rgba(20,55,130,0.15)] p-2.5">
+                <SelectInput value={bulkClassId} onChange={(e) => setBulkClassId(e.target.value)} disabled={locked || !form.campusId} className="flex-1">
+                  <option value="">{form.campusId ? 'Select a homeroom class...' : 'Select a campus first'}</option>
+                  {classes.map((cls) => <option key={cls.id} value={cls.id}>{cls.name}</option>)}
+                </SelectInput>
+                <Button type="button" variant="ghost" disabled={locked || !bulkClassId} onClick={addAllSubjectsForClass}>
+                  <Plus className="h-4 w-4" /> Add all subjects for this class
                 </Button>
               </div>
               <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-xl border border-[rgba(20,55,130,0.1)] bg-[#F8FAFC] p-3">

@@ -921,17 +921,36 @@ export default function TimetablePage() {
       {campusId && classId && !gridLoading && !gridError && teacherClassMismatch ? (
         <div className="flex items-start gap-3 rounded-2xl border border-brand-maroon/20 bg-brand-maroon/5 p-4 text-sm text-text-primary">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-brand-maroon" />
-          <div>
-            <p className="font-medium">
-              {selectedTeacher?.name ?? 'This teacher'} doesn&apos;t teach {selectedClass?.name ?? 'this class'}.
-            </p>
-            <p className="mt-1 text-text-secondary">
-              {selectedTeacher && selectedTeacher.classNames.length > 0
-                ? `They teach: ${selectedTeacher.classNames.join(', ')}.`
-                : 'No classes are assigned to them yet.'}{' '}
-              Pick one of those, or clear the teacher filter to see {selectedClass?.name ?? 'this class'}&apos;s full schedule.
-            </p>
-          </div>
+          {/* selectedTeacher.classNames comes from ELIGIBILITY (TeacherSubject),
+              not from the actual generated schedule — a teacher can be eligible
+              for this exact class while having zero real entries here (not
+              generated yet, or someone else got the slot this round). Showing
+              the plain "doesn't teach X... they teach: X" message in that case
+              was self-contradictory; branch on whether the selected class is
+              itself in their eligible list to say the accurate thing. */}
+          {selectedTeacher && selectedClass && selectedTeacher.classNames.includes(selectedClass.name) ? (
+            <div>
+              <p className="font-medium">
+                {selectedTeacher.name} is eligible for {selectedClass.name} but has no scheduled periods there yet.
+              </p>
+              <p className="mt-1 text-text-secondary">
+                Run Generate for this campus to assign their periods, or clear the teacher filter to see{' '}
+                {selectedClass.name}&apos;s full schedule in the meantime.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <p className="font-medium">
+                {selectedTeacher?.name ?? 'This teacher'} doesn&apos;t teach {selectedClass?.name ?? 'this class'}.
+              </p>
+              <p className="mt-1 text-text-secondary">
+                {selectedTeacher && selectedTeacher.classNames.length > 0
+                  ? `They teach: ${selectedTeacher.classNames.join(', ')}.`
+                  : 'No classes are assigned to them yet.'}{' '}
+                Pick one of those, or clear the teacher filter to see {selectedClass?.name ?? 'this class'}&apos;s full schedule.
+              </p>
+            </div>
+          )}
         </div>
       ) : null}
 

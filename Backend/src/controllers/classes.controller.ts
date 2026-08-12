@@ -21,6 +21,7 @@ type ClassWithListRelations = Prisma.ClassGetPayload<{
     gamesProtectedLectures: true
     gamesProtectionConfirmed: true
     campus: { select: { name: true } }
+    classSubjects: { select: { subjectId: true } }
     _count: {
       select: {
         classSubjects: true
@@ -85,6 +86,7 @@ export const listClasses = async (req: Request, res: Response) => {
         gamesProtectedLectures: true,
         gamesProtectionConfirmed: true,
         campus: { select: { name: true } },
+        classSubjects: { select: { subjectId: true } },
         _count: {
           select: {
             classSubjects: true,
@@ -122,6 +124,10 @@ export const listClasses = async (req: Request, res: Response) => {
         isLocked: cls.isLocked,
         gamesProtectedLectures: parseGamesProtectedLectures(cls.gamesProtectedLectures),
         gamesProtectionConfirmed: cls.gamesProtectionConfirmed,
+        // Which subjects this class actually requires — lets the Teachers
+        // page filter its eligibility class dropdown to real curricular
+        // combinations instead of allowing any subject with any class.
+        subjectIds: cls.classSubjects.map((cs) => cs.subjectId),
         subjectCount: cls._count.classSubjects,
         eligibilityCount: cls._count.teacherSubjects,
         timetableCount: cls._count.timetableEntries,

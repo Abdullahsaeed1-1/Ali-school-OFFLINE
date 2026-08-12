@@ -15,6 +15,11 @@ export type ClassSummary = {
   // Empty array is a real answer ("confirmed: no protection needed").
   gamesProtectedLectures: number[]
   gamesProtectionConfirmed: boolean
+  // Which subjects this class actually requires (its real ClassSubject
+  // list) — used to filter eligibility subject/class pairs to real
+  // curricular combinations (e.g. don't let "Chemistry" be assigned to a
+  // KG class), not just any subject with any class.
+  subjectIds: string[]
   subjectCount: number
   eligibilityCount: number
   timetableCount: number

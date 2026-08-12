@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowRightLeft, Calendar, Plus } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, Calendar, Plus } from 'lucide-react'
 import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -209,7 +209,10 @@ export default function TeacherTimetablePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-display text-2xl text-text-primary">Teacher Timetable</h2>
+        <Button variant="ghost" onClick={() => navigate('/dashboard/teachers')}>
+          <ArrowLeft className="h-4 w-4" /> Back to Teachers
+        </Button>
+        <h2 className="mt-2 font-display text-2xl text-text-primary">Teacher Timetable</h2>
         <p className="mt-1 text-sm text-text-muted">Browse any teacher's aggregated weekly schedule directly — a read-only view.</p>
       </div>
 
