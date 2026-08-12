@@ -1014,7 +1014,7 @@ export default function TeachersPage() {
                       : !pairSubjectId
                         ? 'Select a subject first'
                         : selectedCampusClasses.length === 0
-                          ? 'No classes in this campus need this subject'
+                          ? 'No classes need this yet — add it to a class in Classes page first'
                           : 'Select class'}
                   </option>
                   {selectedCampusClasses.map((cls) => <option key={cls.id} value={cls.id}>{cls.name}</option>)}
