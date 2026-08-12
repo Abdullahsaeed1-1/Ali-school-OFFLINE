@@ -4,6 +4,7 @@ import Button from '../../components/ui/Button'
 import { ErrorBanner } from '../../components/ui/ErrorBanner'
 import { useAuth } from '../../context/AuthContext'
 import { authApi } from '../../api/auth'
+import { backupApi } from '../../api/backup'
 import { getApiErrorMessage } from '../../utils/apiError'
 import { getInitials } from '../../utils/initials'
 import { useToast } from '../../components/ui/Toast'
@@ -19,6 +20,7 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [backupLoading, setBackupLoading] = useState(false)
 
   const submit = async () => {
     setError(null)
@@ -44,6 +46,29 @@ export default function SettingsPage() {
       setError(getApiErrorMessage(err, 'Could not update password. Please try again.'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const downloadBackup = async () => {
+    setBackupLoading(true)
+    try {
+      const blob = await backupApi.download()
+      // No filesystem/download API on the server side to write to — the
+      // browser's own download flow (Blob URL + a throwaway <a> click) is
+      // the standard way to hand a fetched file to the user from the page.
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `ali-school-backup-${new Date().toISOString().slice(0, 10)}.db`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      pushToast({ kind: 'success', title: 'Backup downloaded', description: 'Saved to your Downloads folder.' })
+    } catch (err) {
+      pushToast({ kind: 'error', title: 'Backup failed', description: getApiErrorMessage(err, 'Could not download a backup. Please try again.') })
+    } finally {
+      setBackupLoading(false)
     }
   }
 
@@ -80,6 +105,19 @@ export default function SettingsPage() {
           <Button onClick={submit} loading={loading} disabled={!currentPassword || !newPassword || !confirmPassword}>Update Password</Button>
           <Button variant="ghost" onClick={logout} disabled={loading}>Logout</Button>
         </div>
+      </Card>
+
+      <Card className="space-y-3 p-5">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">Data backup</p>
+          <p className="mt-1 text-sm text-text-primary">Download a complete, up-to-date copy of the school's data.</p>
+          <p className="mt-1 text-xs text-text-muted">
+            This app runs offline with no automatic cloud backup — save this file somewhere safe
+            periodically. It's also what to send if a future app update needs testing against your
+            real data.
+          </p>
+        </div>
+        <Button variant="ghost" onClick={downloadBackup} loading={backupLoading}>Download Backup</Button>
       </Card>
     </div>
   )

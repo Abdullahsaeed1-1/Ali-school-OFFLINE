@@ -6,6 +6,7 @@ import type { NextFunction, Request, Response } from 'express'
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import authRoutes from './routes/auth.routes.js'
+import backupRoutes from './routes/backup.routes.js'
 import campusesRoutes from './routes/campuses.routes.js'
 import capacityAdvisorRoutes from './routes/capacityAdvisor.routes.js'
 import classesRoutes from './routes/classes.routes.js'
@@ -70,6 +71,7 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.use('/api/auth', authRoutes)
+app.use('/api/backup', backupRoutes)
 app.use('/api/campuses', campusesRoutes)
 app.use('/api/capacity-advisor', capacityAdvisorRoutes)
 app.use('/api/classes', classesRoutes)
