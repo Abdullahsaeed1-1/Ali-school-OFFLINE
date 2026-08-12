@@ -64,6 +64,11 @@ function getPaths() {
 
 const BACKEND_PORT = Number(process.env.APS_BACKEND_PORT ?? 3000)
 const SOLVER_PORT = Number(process.env.APS_SOLVER_PORT ?? 8001)
+// Taskbar/window icon at runtime — separate from the .exe/installer icon
+// (that one's set via package.json's build.win.icon, baked in at build
+// time). build/icon.ico is listed in package.json's `files` so it's
+// bundled into app.asar and resolves the same way in dev and packaged.
+const ICON_PATH = path.join(__dirname, 'build', 'icon.ico')
 
 // ---------------------------------------------------------------------------
 // First-run config: JWT secrets and the seed admin password are generated
@@ -113,6 +118,7 @@ function showFirstRunWindow(config) {
       height: 560,
       resizable: false,
       title: 'Ali Public School — First-Time Setup',
+      icon: ICON_PATH,
     })
     firstRunWindow.setMenu(null)
     // loadFile() returns a Promise that rejects on failure — Electron's
@@ -349,6 +355,7 @@ async function main() {
     width: 1280,
     height: 800,
     title: 'Ali Public School',
+    icon: ICON_PATH,
   })
   win.loadURL(`http://localhost:${BACKEND_PORT}`).catch((err) => console.error('[main] main window failed to load:', err))
   win.webContents.on('did-finish-load', () => console.log('[main] main window loaded successfully.'))

@@ -21,7 +21,8 @@
     "files": [
       "main.js",
       "first-run.html",
-      "package.json"
+      "package.json",
+      "build/icon.ico"
     ],
     "extraResources": [
       { "from": "../Backend/dist", "to": "backend/dist" },
@@ -33,7 +34,12 @@
       { "from": "node-runtime", "to": "node-runtime" }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     }
   }
 }
