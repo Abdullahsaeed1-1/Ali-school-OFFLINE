@@ -457,10 +457,33 @@ rather than silently skipped):
   `signtool.exe` step during the build logs "no signing info identified,
   signing is skipped" — expected. Consequence to keep in mind: unsigned
   means Windows SmartScreen will warn on first run on other machines.
-- A custom app icon (currently Electron's default) and installer branding
-  — cosmetic, still deferred.
+- ~~A custom app icon~~ — **done 2026-08-12.** `desktop/build/icon.ico`,
+  generated from the real school crest (`web-admin/logo/logo.jpeg`),
+  wired into the exe/installer/uninstaller and both `BrowserWindow`
+  instances. Installer branding beyond the icon (custom NSIS page
+  graphics etc.) still deferred — cosmetic, no one's asked for it.
 - ~~A first-run UI showing the generated admin password~~ — **done, see
   addendum below.**
+- **Data model / update-safety clarification (2026-08-12, came up as a
+  direct question):** the installer is code only — it does not carry
+  any of Abdullah's own test data, and does not know or care what data
+  already exists on a machine. Each install's SQLite database lives at
+  the OS per-user app-data path (`app.getPath('userData')`, e.g.
+  `%APPDATA%\ali-school-desktop\data\app.db`), entirely separate from
+  the install directory (`%LOCALAPPDATA%\Programs\ali-school-desktop`)
+  that the installer/uninstaller actually manage. **Confirmed live**:
+  added a marker teacher, re-ran the installer over the existing install
+  (upgrade-in-place) — survived; fully uninstalled, then reinstalled —
+  still survived, same admin account (same ID, same password) still
+  logged in, marker teacher visible through the real running API
+  afterward. Practical implication for Abdullah: sending the school a
+  new installer build (a code update) never touches their existing data
+  — only code/bug-fix changes require resending anything; anything
+  entered *through the app* (add a teacher, generate a timetable, etc.)
+  lives solely on that machine's own file and never needs "resending."
+  SQLite's practical capacity (rows, file size) is far beyond what a
+  single school's data will ever reach — not a real scaling concern at
+  this scope.
 
 1. New `desktop/` folder holding the Electron main process.
 2. **Backend runs as a spawned child process using a real Node executable,
